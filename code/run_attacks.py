@@ -6,7 +6,8 @@ import cv2
 import torch
 import matplotlib.pyplot as plt
 
-from utils import get_args
+
+from utils import get_args, compute_VO_args
 import numpy as np
 from Datasets.utils import plot_traj, visflow
 from Datasets.transformation import ses2poses_quat, pos_quats2SE_matrices
@@ -453,7 +454,7 @@ def report_adv_deviation(dataset_idx_list, dataset_name_list, traj_name_list, tr
     if save_csv:
         fieldsnames = ['dataset_idx', 'dataset_name', 'traj_idx', 'traj_name', 'frame_idx',
                        'clean_' + crit_str, 'adv_' + crit_str, 'adv_delta_' + crit_str,
-                       'adv_ratio_' + crit_str, 'adv_delta_ratio_' + crit_str, 'mean_last_frame' + crit_str]
+                       'adv_ratio_' + crit_str, 'adv_delta_ratio_' + crit_str]
 
         with open(csv_path, 'w') as f:
             writer = csv.DictWriter(f, fieldnames=fieldsnames)
@@ -476,11 +477,11 @@ def report_adv_deviation(dataset_idx_list, dataset_name_list, traj_name_list, tr
                             'adv_ratio_' + crit_str: traj_ratio_crit_list[traj_idx][frame_idx],
                             'adv_delta_ratio_' + crit_str: traj_adv_crit_list[traj_idx][frame_idx]}
                     writer.writerow(data)
-            avg_adv_delta = sum_adv_delta / num_samples
-            print("Average " + crit_str + "_crit_adv_delta: " + str(avg_adv_delta))
-        filename = os.path.join(output_dir, 'avg_' + str(avg_adv_delta) + '_' + experiment_name + '.csv')
-        with open(filename, 'w') as f:
-            pass
+        avg_adv_delta = sum_adv_delta / num_samples
+        print("Average " + crit_str + "_crit_adv_delta: " + str(avg_adv_delta))
+        filename = os.path.join(output_dir, 'avarages_' + experiment_name + '.txt')
+        with open(filename, 'a') as f:
+            f.write("Average " + crit_str + "_crit_adv_delta: " + str(avg_adv_delta) + "\n")
 
     del traj_delta_crit_list
     del traj_ratio_crit_list
@@ -571,7 +572,6 @@ def run_attacks_train(args):
                          args.save_csv, args.output_dir, crit_str="rms")
 
 
-
 def run_attacks_train_silent(args):
     attack = args.attack_obj
     dataset_idx_list, dataset_name_list, traj_name_list, traj_indices, \
@@ -594,26 +594,60 @@ def run_attacks_train_silent(args):
     traj_adv_rms_list, traj_adv_mean_partial_rms_list, \
     traj_adv_target_rms_list, traj_adv_target_mean_partial_rms_list = tuple(traj_adv_criterions_list)
 
-    last_frame_delta_ratios = []
-    for traj_idx, traj_name in enumerate(traj_name_list):
-        traj_clean_crit = traj_clean_target_rms_list[traj_idx]
-        traj_adv_crit = traj_adv_target_rms_list[traj_idx]
-        # traj_delta_crit = []
-        # traj_ratio_crit = []
-        traj_delta_ratio_crit = []
+    # last_frame_delta_ratios = []
+    # for traj_idx, traj_name in enumerate(traj_name_list):
+    #     traj_clean_crit = traj_clean_target_rms_list[traj_idx]
+    #     traj_adv_crit = traj_adv_target_rms_list[traj_idx]
+    #     # traj_delta_crit = []
+    #     # traj_ratio_crit = []
+    #     traj_delta_ratio_crit = []
+    #
+    #     for frame_idx, frame_clean_crit in enumerate(traj_clean_crit):
+    #         frame_adv_crit = traj_adv_crit[frame_idx]
+    #         frame_delta_crit = frame_adv_crit - frame_clean_crit
+    #         if frame_clean_crit == 0:
+    #             # frame_ratio_crit = 0
+    #             frame_delta_ratio_crit = 0
+    #         else:
+    #             # frame_ratio_crit = frame_adv_crit / frame_clean_crit
+    #             frame_delta_ratio_crit = frame_delta_crit / frame_clean_crit
+    #         traj_delta_ratio_crit.append(frame_delta_ratio_crit)
+    #     last_frame_delta_ratios.append(traj_delta_ratio_crit[-1])
+    # return sum(last_frame_delta_ratios) / len(last_frame_delta_ratios)
 
-        for frame_idx, frame_clean_crit in enumerate(traj_clean_crit):
-            frame_adv_crit = traj_adv_crit[frame_idx]
-            frame_delta_crit = frame_adv_crit - frame_clean_crit
-            if frame_clean_crit == 0:
-                # frame_ratio_crit = 0
-                frame_delta_ratio_crit = 0
-            else:
-                # frame_ratio_crit = frame_adv_crit / frame_clean_crit
-                frame_delta_ratio_crit = frame_delta_crit / frame_clean_crit
-            traj_delta_ratio_crit.append(frame_delta_ratio_crit)
-        last_frame_delta_ratios.append(traj_delta_ratio_crit[-1])
-    return sum(last_frame_delta_ratios) / len(last_frame_delta_ratios)
+    sum_adv_delta = 0
+    num_samples = 0
+    for traj_idx, traj_name in enumerate(traj_name_list):
+        for frame_idx, frame_clean_crit in enumerate(traj_clean_target_rms_list[traj_idx]):
+            if frame_idx == 7:
+                sum_adv_delta += traj_adv_target_rms_list[traj_idx][frame_idx]
+                num_samples += 1
+
+    avg_adv_delta = sum_adv_delta / num_samples
+    return avg_adv_delta
+
+def tune_lr_and_weights(args, alpha_list=(0.001, 0.005, 0.01, 0.05), t_factor_list=(1.0,), r_factor_list=(1.0,), f_factor_list=(1.0,)):
+    losses = dict()
+    num_iterations = len(alpha_list) * len(t_factor_list) * len(r_factor_list) * len(f_factor_list)
+    num_epochs = args.attack_k
+    print(f'num_iterations: {num_iterations}, num_epochs: {num_epochs}')
+    print(f'estimated time for completion: {1.2 * num_iterations * num_epochs} minutes')
+    for alpha in alpha_list:
+        for t_factor in t_factor_list:
+            for r_factor in r_factor_list:
+                for f_factor in f_factor_list:
+                    args.alpha = alpha
+                    args.attack_t_factor = t_factor
+                    args.attack_rot_factor = r_factor
+                    args.attack_flow_factor = f_factor
+                    args = compute_VO_args(args)
+                    losses[(alpha, t_factor, r_factor, f_factor)] = run_attacks_train_silent(args)
+                    print(f'alpha: {alpha}, t_factor: {t_factor}, r_factor: {r_factor}, f_factor: {f_factor}, loss: {losses[(alpha, t_factor, r_factor, f_factor)]}')
+    losses = {k: v for k, v in sorted(losses.items(), key=lambda item: item[1])}
+    print(losses)
+    print("Best:", losses[max(losses, key=losses.get)])
+    print("Worst:", losses[min(losses, key=losses.get)])
+
 
 def test_clean(args):
     print("Testing the visual odometer on the I1 albedo image compared to the clean I0 albedo image, "
@@ -623,6 +657,7 @@ def test_clean(args):
 
 def main():
     args = get_args()
+    tune_lr_and_weights(args)
     if args.attack is None:
         return test_clean(args)
     return run_attacks_train(args)
