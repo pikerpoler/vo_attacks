@@ -170,7 +170,13 @@ class VOCriterion:
         else:
             self.calc_rot_crit = self.calc_none
 
-        self.calc_flow_crit = self.calc_none
+
+        if flow_crit == 'mse':
+            self.calc_flow_crit = self.calc_mse
+        elif flow_crit == 'l1':
+            self.calc_flow_crit = self.calc_l1
+        else:
+            self.calc_flow_crit = self.calc_none
 
         self.calc_target_t_product = True
 
@@ -277,5 +283,11 @@ class VOCriterion:
         preprocessed_gt_rot = preprocessed_gt[:, 3:6]
         dot_product = torch.bmm(est_rot.view(batch_size, 1, 3), preprocessed_gt_rot.view(batch_size, 3, 1)).squeeze()
         return 1 - dot_product
+
+    def calc_mse(self, pred, target):
+        return torch.nn.functional.mse_loss(pred, target)
+
+    def calc_l1(self, pred, target):
+        return torch.nn.functional.l1_loss(pred, target)
 
 
