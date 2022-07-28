@@ -198,18 +198,12 @@ class PGD(Attack):
 
                     eval_runtime = time.time() - eval_start_time
                     print(" evaluation finished, evaluation runtime: " + str(eval_runtime))
-                    print(" current trajectories loss mean list:")
-                    print(" " + str(traj_loss_mean_list))
-                    print(" current trajectories best loss mean list:")
-                    print(" " + str(traj_best_loss_mean_list))
-                    print(" trajectories clean loss mean list:")
-                    print(" " + str(traj_clean_loss_mean_list))
-                    print(" current trajectories loss sum:")
-                    print(" " + str(eval_loss_tot))
-                    print(" current trajectories best loss sum:")
-                    print(" " + str(best_loss_sum))
-                    print(" trajectories clean loss sum:")
-                    print(" " + str(clean_loss_sum))
+                    print(" current trajectories loss mean list:" + str(traj_loss_mean_list))
+                    print(" current trajectories best loss mean list:" + str(traj_best_loss_mean_list))
+                    print(" trajectories clean loss mean list:" + str(traj_clean_loss_mean_list))
+                    print(" current trajectories loss sum:" + str(eval_loss_tot))
+                    print(" current trajectories best loss sum:" + str(best_loss_sum))
+                    print(" trajectories clean loss sum:" + str(clean_loss_sum))
                     del eval_loss_tot
                     del eval_loss_list
                     torch.cuda.empty_cache()
