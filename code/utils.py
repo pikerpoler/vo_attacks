@@ -11,6 +11,8 @@ from Datasets.tartanTrajFlowDataset import TrajFolderDataset, \
 from torch.utils.data import DataLoader
 from os import mkdir, makedirs
 from os.path import isdir
+
+from attacks.convpgd import ConvPGD
 from loss import VOCriterion
 import numpy as np
 
@@ -208,7 +210,7 @@ def compute_attack_args(args):
         print("loading pre-computed attack from path: " + args.load_attack)
         load_pert_transform = Compose([CropCenter((args.image_height, args.image_width)), ToTensor()])
 
-    attack_dict = {'pgd': PGD, 'const': Const}
+    attack_dict = {'pgd': PGD, 'const': Const, 'conv': ConvPGD}
     args.attack_name = args.attack
     if args.attack not in attack_dict:
         args.attack = None

@@ -657,7 +657,7 @@ def test_clean(args):
 
 def main():
     args = get_args()
-    tune_lr_and_weights(args)
+    # tune_lr_and_weights(args)
     if args.attack is None:
         return test_clean(args)
     return run_attacks_train(args)
