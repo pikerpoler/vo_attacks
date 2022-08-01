@@ -432,7 +432,7 @@ class Attack:
 
         with torch.no_grad():
             grad = self.normalize_grad(grad_tot)
-            s
+            pert += multiplier * a_abs * grad
             pert = self.project(pert, eps)
 
         return pert

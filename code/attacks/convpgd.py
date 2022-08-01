@@ -73,7 +73,6 @@ class ConvPGD(Attack):
             init_pert_path=None,
             init_pert_transform=None,
             generator=None,
-            generator_depth=3,
 
     ):
         super(ConvPGD, self).__init__(model, criterion, test_criterion, norm, data_shape,
@@ -87,7 +86,7 @@ class ConvPGD(Attack):
         if generator is not None:
             self.generator = generator
         else:
-            self.generator = PertGenerator(data_shape, depth=generator_depth)
+            self.generator = PertGenerator(data_shape)
         self.optimizer = torch.optim.Adam(self.generator.parameters(), lr=alpha)
 
     #
