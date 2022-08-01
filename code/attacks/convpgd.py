@@ -42,10 +42,10 @@ class PertGenerator(torch.nn.Module):
         Average target_rms_crit_adv_delta = 0.11246040026657284
         Average mean_partial_rms_crit_adv_delta = 0.4526335008442402     
         '''
-        c1 = ConvTranspose2d(1, 2, kernel_size=(7, 10), stride=(1, 1), padding=(0, 1))
-        c2 = ConvTranspose2d(2, 3, kernel_size=(14, 25), stride=(2, 2), padding=(1, 2))
-        c3 = ConvTranspose2d(3, 4, kernel_size=(35, 50), stride=(3, 3), padding=(4, 7))
-        c4 = ConvTranspose2d(4, 3, kernel_size=(70, 100), stride=(4, 4), padding=(1, 4))
+        c1 = ConvTranspose2d(1, 20, kernel_size=(7, 10), stride=(1, 1), padding=(0, 1))
+        c2 = ConvTranspose2d(20, 30, kernel_size=(14, 25), stride=(2, 2), padding=(1, 2))
+        c3 = ConvTranspose2d(30, 20, kernel_size=(35, 50), stride=(3, 3), padding=(4, 7))
+        c4 = ConvTranspose2d(20, 3, kernel_size=(70, 100), stride=(4, 4), padding=(1, 4))
         self.cnn = Sequential(c1, c2, c3, c4)
 
         # c1 = ConvTranspose2d(1, 3, kernel_size=(448, 640), stride=(1, 1), padding=(0, 0))
