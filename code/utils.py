@@ -30,7 +30,7 @@ def parse_args():
     parser.add_argument('--save_pose', action='store_true', default=False,
                         help='save optical flow (default: False)')
     parser.add_argument('--save_imgs', action='store_true', default=False, help='save images (default: False)')
-    parser.add_argument('--save_best_pert', action='store_true', default=False, help='save best pert (default: False)')
+    parser.add_argument('--save_best_pert', action='store_false', default=True, help='save best pert (default: True)')
     parser.add_argument('--save_csv', action='store_true', default=False, help='save results csv (default: False)')
 
     # data loader params
@@ -47,8 +47,8 @@ def parse_args():
                         help='test trajectory folder where the RGB images are (default: None)')
     parser.add_argument('--processed_data_dir', default='VO_adv_project_train_dataset_8_frames_processed',
                         help='folder to save processed dataset tensors (default: None)')
-    parser.add_argument('--preprocessed_data', action='store_true', default=False,
-                        help='use preprocessed data in processed_data_dir (default: False)')
+    parser.add_argument('--preprocessed_data', action='store_false', default=True,
+                        help='use preprocessed data in processed_data_dir (default: True)')
     parser.add_argument('--max_traj_len', type=int, default=8,
                         help='maximal amount of frames to load in each trajectory (default: 500)')
     parser.add_argument('--max_traj_num', type=int, default=10,
@@ -69,7 +69,7 @@ def parse_args():
 
 
     # adversarial attacks params
-    parser.add_argument('--attack', default='none', type=str, metavar='ATT', help='attack type')
+    parser.add_argument('--attack', default='pgd', type=str, metavar='ATT', help='attack type')
     parser.add_argument('--attack_norm', default='Linf', type=str, metavar='ATTL', help='norm used for the attack')
     parser.add_argument('--attack_k', default=100, type=int, metavar='ATTK', help='number of iterations for the attack')
     parser.add_argument('--alpha', type=float, default=0.05)
@@ -77,8 +77,8 @@ def parse_args():
     # parser.add_argument('--attack_targeted', action='store_true', default=False, help='use targeted attacks')
     parser.add_argument('--attack_eval_mean_partial_rms', action='store_true', default=False, help='use mean partial rms criterion for attack evaluation criterion (default: False)')
     parser.add_argument('--attack_t_crit', default="none", type=str, metavar='ATTTC', help='translation criterion type for optimizing the attack (default: RMS between poses)')
-    parser.add_argument('--attack_rot_crit', default="none", type=str, metavar='ATTRC', help='rotation criterion type for optimizing the attack (default: None)')
-    parser.add_argument('--attack_flow_crit', default="none", type=str, metavar='ATTFC', help='optical flow criterion type for optimizing the attack (default: None)')
+    parser.add_argument('--attack_rot_crit', default="dot_product", type=str, metavar='ATTRC', help='rotation criterion type for optimizing the attack (default: None)')
+    parser.add_argument('--attack_flow_crit', default="l1", type=str, metavar='ATTFC', help='optical flow criterion type for optimizing the attack (default: None)')
     parser.add_argument('--attack_target_t_crit', default="none", type=str, metavar='ATTTTC',
                         help='targeted translation criterion target for optimizing the attack, type is the same as untargeted criterion (default: None)')
     parser.add_argument('--attack_t_factor', type=float, default=1.0, help='factor for the translation criterion of the attack (default: 1.0)')
