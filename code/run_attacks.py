@@ -533,16 +533,10 @@ def run_attacks_train(args):
     best_pert, clean_loss_list, all_loss_list, all_best_loss_list = \
         attack.perturb(args.testDataloader, motions_target_list, eps=args.eps, device=args.device)
 
-    # print("clean_loss_list")
-    # print(clean_loss_list)
-    # print("all_loss_list")
-    # print(all_loss_list)
-    # print("all_best_loss_list")
-    # print(all_best_loss_list)
-    best_loss_list = all_best_loss_list[- 1]
-    # print("best_loss_list")
-    # print(best_loss_list)
-
+    torch.save(all_loss_list, os.path.join(args.output_dir, 'all_loss_list.pt'))
+    components_listname = args.output_dir.split('/')
+    listname = components_listname[-5] + "-" + components_listname[-3] + "-" + components_listname[-1] + '.pt'
+    torch.save(all_loss_list, os.path.join('results/loss_lists', listname))
     if args.save_best_pert:
         save_image(best_pert[0], args.adv_best_pert_dir + '/' + 'adv_best_pert.png')
 
@@ -594,26 +588,6 @@ def run_attacks_train_silent(args):
     traj_adv_rms_list, traj_adv_mean_partial_rms_list, \
     traj_adv_target_rms_list, traj_adv_target_mean_partial_rms_list = tuple(traj_adv_criterions_list)
 
-    # last_frame_delta_ratios = []
-    # for traj_idx, traj_name in enumerate(traj_name_list):
-    #     traj_clean_crit = traj_clean_target_rms_list[traj_idx]
-    #     traj_adv_crit = traj_adv_target_rms_list[traj_idx]
-    #     # traj_delta_crit = []
-    #     # traj_ratio_crit = []
-    #     traj_delta_ratio_crit = []
-    #
-    #     for frame_idx, frame_clean_crit in enumerate(traj_clean_crit):
-    #         frame_adv_crit = traj_adv_crit[frame_idx]
-    #         frame_delta_crit = frame_adv_crit - frame_clean_crit
-    #         if frame_clean_crit == 0:
-    #             # frame_ratio_crit = 0
-    #             frame_delta_ratio_crit = 0
-    #         else:
-    #             # frame_ratio_crit = frame_adv_crit / frame_clean_crit
-    #             frame_delta_ratio_crit = frame_delta_crit / frame_clean_crit
-    #         traj_delta_ratio_crit.append(frame_delta_ratio_crit)
-    #     last_frame_delta_ratios.append(traj_delta_ratio_crit[-1])
-    # return sum(last_frame_delta_ratios) / len(last_frame_delta_ratios)
 
     sum_adv_delta = 0
     num_samples = 0
@@ -657,7 +631,6 @@ def test_clean(args):
 
 def main():
     args = get_args()
-    # tune_lr_and_weights(args)
     if args.attack is None:
         return test_clean(args)
     return run_attacks_train(args)
