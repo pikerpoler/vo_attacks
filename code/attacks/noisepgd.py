@@ -24,14 +24,13 @@ class NoisePGD(PGD):
             sample_window_stride=None,
             pert_padding=(0, 0),
             init_pert_path=None,
-            init_pert_transform=None):
+            init_pert_transform=None,
+            noise=0.001):
         super(NoisePGD, self).__init__(model, criterion, test_criterion, data_shape, norm, n_iter, n_restarts, alpha, rand_init, sample_window_size, sample_window_stride, pert_padding, init_pert_path, init_pert_transform)
-
+        self.noise = noise
     def gradient_ascent_step(self, pert, data_shape, data_loader, y_list, clean_flow_list,
                              multiplier, a_abs, eps, device=None):
-            std = pert.std()
-            print(f'std: {std}')
-            pert_expand = (pert + std*torch.rand(pert.shape, device=device)).expand(data_shape[0], -1, -1, -1).to(device)
+            pert_expand = (pert + self.noise*torch.rand(pert.shape, device=device)).expand(data_shape[0], -1, -1, -1).to(device)
             grad_tot = torch.zeros_like(pert, requires_grad=False)
 
             for data_idx, data in enumerate(data_loader):

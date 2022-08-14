@@ -2,6 +2,8 @@ import numpy as np
 import torch
 from attacks.attack import Attack
 import time
+
+from torchvision.utils import save_image
 from tqdm import tqdm
 import cv2
 
@@ -171,7 +173,7 @@ class PGD(Attack):
             pert = self.project(pert, eps)
 
             for k in tqdm(range(self.n_iter)):
-                print(" attack optimization epoch: " + str(k))
+                print(f" attack optimization epoch: {str(k)}\n")
                 iter_start_time = time.time()
 
                 pert = self.gradient_ascent_step(pert, data_shape, data_loader, y_list, clean_flow_list,

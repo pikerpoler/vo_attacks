@@ -175,6 +175,8 @@ class VOCriterion:
             self.calc_flow_crit = self.calc_mse
         elif flow_crit == 'l1':
             self.calc_flow_crit = self.calc_l1
+        elif flow_crit == 'explode':
+            self.calc_flow_crit = self.calc_dist_from_origin
         else:
             self.calc_flow_crit = self.calc_none
 
@@ -289,5 +291,11 @@ class VOCriterion:
 
     def calc_l1(self, pred, target):
         return torch.nn.functional.l1_loss(pred, target)
+
+    def calc_dist_from_origin(self, pred, target):
+        # return torch.norm(pred, dim=1)
+        return torch.nn.functional.mse_loss(pred, torch.zeros_like(pred))
+
+
 
 

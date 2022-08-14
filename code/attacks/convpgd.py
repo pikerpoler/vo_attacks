@@ -51,6 +51,18 @@ class PertGenerator(torch.nn.Module):
         # c1 = ConvTranspose2d(1, 3, kernel_size=(448, 640), stride=(1, 1), padding=(0, 0))
         # self.cnn = Sequential(c1)
 
+        # self.kernel = torch.ones(1, 200, 14, 20)
+        # channels = [200, 1500, 1000, 500, 25, 3]
+        # up_layers = []
+        # for i in range(5):
+        #     up_layers.append(ConvTranspose2d(channels[i], channels[i], kernel_size=3, stride=1, padding=1, dilation=1))
+        #     # up_layers.append(torch.nn.ReLU())  # without its 102 and with its 103
+        #     up_layers.append(
+        #         ConvTranspose2d(channels[i], channels[i + 1], kernel_size=3, stride=2, padding=1, dilation=1,
+        #                         output_padding=1))
+        # self.cnn = Sequential(*up_layers)
+
+
 
     def sample(self, device):
         return self.cnn(self.kernel.to(device))
@@ -267,13 +279,13 @@ class ConvPGD(Attack):
             self.generator.train()
 
             for k in tqdm(range(self.n_iter)):
-                print(" attack optimization epoch: " + str(k))
+                print(f" attack optimization epoch: {str(k)} ")
                 iter_start_time = time.time()
 
                 self.gradient_ascent_step(data_shape, data_loader, y_list, clean_flow_list, eps, device=device)
 
                 step_runtime = time.time() - iter_start_time
-                print(" optimization epoch finished, epoch runtime: " + str(step_runtime))
+                print(f" optimization epoch finished, epoch runtime: {str(step_runtime)} ")
 
                 print(" evaluating perturbation")
                 eval_start_time = time.time()

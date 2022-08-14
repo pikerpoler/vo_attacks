@@ -1,3 +1,4 @@
+import copy
 import itertools
 import os
 import random
@@ -6,7 +7,7 @@ import cv2
 import torch
 import matplotlib.pyplot as plt
 
-
+from attacks.noisepgd import NoisePGD
 from utils import get_args, compute_VO_args
 import numpy as np
 from Datasets.utils import plot_traj, visflow
@@ -518,6 +519,12 @@ def run_attacks_train(args):
     print(args.attack)
     attack = args.attack_obj
 
+    temp_args = copy.deepcopy(args)
+    temp_args.testDataloader = temp_args.valDataloader
+    _, _, _, _, eval_y_list, _, _ = test_clean_multi_inputs(temp_args)
+    temp_args.testDataloader = None
+    temp_args.valDataloader = None
+
     dataset_idx_list, dataset_name_list, traj_name_list, traj_indices, \
     motions_gt_list, traj_clean_criterions_list, traj_clean_motions = \
         test_clean_multi_inputs(args)
@@ -531,14 +538,21 @@ def run_attacks_train(args):
 
 
     best_pert, clean_loss_list, all_loss_list, all_best_loss_list = \
-        attack.perturb(args.testDataloader, motions_target_list, eps=args.eps, device=args.device)
+        attack.perturb(args.testDataloader, motions_target_list, eps=args.eps, device=args.device, eval_data_loader=args.valDataloader, eval_y_list=eval_y_list)
 
     torch.save(all_loss_list, os.path.join(args.output_dir, 'all_loss_list.pt'))
     components_listname = args.output_dir.split('/')
-    listname = components_listname[-5] + "-" + components_listname[-3] + "-" + components_listname[-1] + '.pt'
-    torch.save(all_loss_list, os.path.join('results/loss_lists', listname))
+    if isinstance(attack, NoisePGD):
+        suffix = '_noise_' + str(attack.noise)
+    else:
+        suffix = ''
+    listname = components_listname[-5] + "_" + components_listname[-2] + "_" + components_listname[-1] + suffix + '.pt'  # + "-" + components_listname[-3]
+    list_path = os.path.join("results/loss_lists", listname)
+    print(f'saving all_loss_list to {list_path}')
+    torch.save(all_loss_list, list_path)
     if args.save_best_pert:
-        save_image(best_pert[0], args.adv_best_pert_dir + '/' + 'adv_best_pert.png')
+        pert_as_image = best_pert if len(best_pert.shape) == 3 else best_pert[0]
+        save_image(pert_as_image, args.adv_best_pert_dir + '/' + 'adv_best_pert.png')
 
     traj_adv_criterions_list = \
         test_adv_trajectories(args.testDataloader, args.model, motions_target_list, attack, best_pert,

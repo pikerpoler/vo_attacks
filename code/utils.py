@@ -15,6 +15,7 @@ from os.path import isdir
 from attacks.convpgd import ConvPGD
 from attacks.noisepgd import NoisePGD
 from attacks.dfspgd import DFSPGD
+from attacks.scheduled_pgd import ScheduledPGD
 from loss import VOCriterion
 import numpy as np
 
@@ -34,7 +35,7 @@ def parse_args():
     parser.add_argument('--save_imgs', action='store_true', default=False, help='save images (default: False)')
     parser.add_argument('--save_best_pert', action='store_false', default=True, help='save best pert (default: True)')
     parser.add_argument('--save_csv', action='store_true', default=False, help='save results csv (default: False)')
-
+    parser.add_argument('--run_name', default='', help='name of run for graphs (default: None)')
     # data loader params
     parser.add_argument('--batch-size', type=int, default=1)
     parser.add_argument('--worker-num', type=int, default=1,
@@ -47,7 +48,7 @@ def parse_args():
                         help='kitti test (default: False)')
     parser.add_argument('--test-dir', default="VO_adv_project_train_dataset_8_frames",
                         help='test trajectory folder where the RGB images are (default: None)')
-    parser.add_argument('--processed_data_dir', default='VO_adv_project_train_dataset_8_frames_processed',
+    parser.add_argument('--processed_data_dir', default='data/VO_adv_project_train_dataset_8_frames_processed',
                         help='folder to save processed dataset tensors (default: None)')
     parser.add_argument('--preprocessed_data', action='store_false', default=True,
                         help='use preprocessed data in processed_data_dir (default: True)')
@@ -57,6 +58,11 @@ def parse_args():
                         help='maximal amount of trajectories to load (default: 100)')
     parser.add_argument('--max_traj_datasets', type=int, default=5,
                         help='maximal amount of trajectories datasets to load (default: 10)')
+
+    parser.add_argument('--val-dir', default="3sec_on_ring_r50m",
+                        help='test trajectory folder where the RGB images are (default: None)')
+    parser.add_argument('--processed_val_dir', default='data/validation_processed_8frames',
+                        help='folder to save processed dataset tensors (default: None)')
 
     parser.add_argument('--pose-file', default='',
                         help='test trajectory gt pose file, used for scale calculation, and visualization (default: "")')
@@ -75,12 +81,13 @@ def parse_args():
     parser.add_argument('--attack_norm', default='Linf', type=str, metavar='ATTL', help='norm used for the attack')
     parser.add_argument('--attack_k', default=100, type=int, metavar='ATTK', help='number of iterations for the attack')
     parser.add_argument('--alpha', type=float, default=0.05)
+    parser.add_argument('--noise', type=float, default=0.001)
     parser.add_argument('--eps', type=float, default=1)
     # parser.add_argument('--attack_targeted', action='store_true', default=False, help='use targeted attacks')
     parser.add_argument('--attack_eval_mean_partial_rms', action='store_true', default=False, help='use mean partial rms criterion for attack evaluation criterion (default: False)')
     parser.add_argument('--attack_t_crit', default="none", type=str, metavar='ATTTC', help='translation criterion type for optimizing the attack (default: RMS between poses)')
-    parser.add_argument('--attack_rot_crit', default="dot_product", type=str, metavar='ATTRC', help='rotation criterion type for optimizing the attack (default: None)')
-    parser.add_argument('--attack_flow_crit', default="l1", type=str, metavar='ATTFC', help='optical flow criterion type for optimizing the attack (default: None)')
+    parser.add_argument('--attack_rot_crit', default="none", type=str, metavar='ATTRC', help='rotation criterion type for optimizing the attack (default: None)')
+    parser.add_argument('--attack_flow_crit', default="none", type=str, metavar='ATTFC', help='optical flow criterion type for optimizing the attack (default: None)')
     parser.add_argument('--attack_target_t_crit', default="none", type=str, metavar='ATTTTC',
                         help='targeted translation criterion target for optimizing the attack, type is the same as untargeted criterion (default: None)')
     parser.add_argument('--attack_t_factor', type=float, default=1.0, help='factor for the translation criterion of the attack (default: 1.0)')
@@ -153,8 +160,21 @@ def compute_data_args(args):
                                      max_dataset_traj_num=args.max_traj_num,
                                      max_traj_datasets=args.max_traj_datasets)
 
+    args.valDataset = \
+        args.dataset_class('./data/' + args.val_dir, processed_data_folder=args.processed_val_dir,
+                           preprocessed_data=args.preprocessed_data,
+                           transform=args.transform, data_size=(args.image_height, args.image_width),
+                           focalx=args.focalx, focaly=args.focaly,
+                           centerx=args.centerx, centery=args.centery, max_traj_len=args.max_traj_len,
+                           max_dataset_traj_num=args.max_traj_num,
+                           max_traj_datasets=args.max_traj_datasets)
+
     args.testDataloader = DataLoader(args.testDataset, batch_size=args.batch_size,
                                         shuffle=False, num_workers=args.worker_num)
+
+    args.valDataloader = DataLoader(args.valDataset, batch_size=args.batch_size,
+                                        shuffle=False, num_workers=args.worker_num)
+
     args.traj_len = args.testDataset.traj_len
     args.traj_datasets = args.testDataset.datasets_num
 
@@ -212,7 +232,7 @@ def compute_attack_args(args):
         print("loading pre-computed attack from path: " + args.load_attack)
         load_pert_transform = Compose([CropCenter((args.image_height, args.image_width)), ToTensor()])
 
-    attack_dict = {'pgd': PGD, 'const': Const, 'conv': ConvPGD, 'noisepgd': NoisePGD, 'dfs': DFSPGD}
+    attack_dict = {'pgd': PGD, 'const': Const, 'conv': ConvPGD, 'noisepgd': NoisePGD, 'dfs': DFSPGD, 'scheduled': ScheduledPGD}
     args.attack_name = args.attack
     if args.attack not in attack_dict:
         args.attack = None
@@ -230,6 +250,17 @@ def compute_attack_args(args):
                                           data_shape=(args.traj_len - 1, args.image_height, args.image_width),
                                           pert_path=args.load_attack,
                                           pert_transform=const_pert_transform)
+        elif args.attack_name == 'noisepgd':
+            args.attack_obj = args.attack(args.model, args.att_criterion, args.att_eval_criterion,
+                                          norm=args.attack_norm,
+                                          data_shape=(args.traj_len - 1, args.image_height, args.image_width),
+                                          n_iter=args.attack_k, alpha=args.alpha, rand_init=True,
+                                          sample_window_size=args.window_size,
+                                          sample_window_stride=args.window_stride,
+                                          init_pert_path=args.load_attack,
+                                          init_pert_transform=load_pert_transform,
+                                          noise=args.noise)
+
         else:
             args.attack_obj = args.attack(args.model, args.att_criterion, args.att_eval_criterion,
                                           norm=args.attack_norm,
@@ -299,6 +330,7 @@ def compute_output_dir(args):
             args.output_dir += "/eps_" + str(args.eps).replace('.', '_') + \
                                "_attack_iter_" + str(args.attack_k) + \
                                "_alpha_" + str(args.alpha).replace('.', '_')
+            args.output_dir += '_' + str(args.run_name)
             if not isdir(args.output_dir):
                 mkdir(args.output_dir)
 

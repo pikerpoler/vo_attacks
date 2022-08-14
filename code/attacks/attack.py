@@ -50,6 +50,8 @@ class Attack:
         else:
             pert = F.normalize(pert.view(pert.shape[0], -1),
                                p=self.p, dim=-1).view(pert.shape) * eps
+
+        pert = torch.clamp(pert, 0, 255) #this is a must anyway because its a photo that will be saved with torch...
         return pert
 
     def warp_pert(self, pert, perspective1, perspective2, device=None):
