@@ -143,7 +143,7 @@ class TrajFolderDataset(Dataset):
         self.rgbfiles.sort()
         self.imgfolder = imgfolder
 
-        print('Find {} image files in {}'.format(len(self.rgbfiles), imgfolder))
+        # print('Find {} image files in {}'.format(len(self.rgbfiles), imgfolder))
 
         if posefile is not None and posefile!="":
             poselist = np.loadtxt(posefile).astype(np.float32)
@@ -196,10 +196,10 @@ class TrajFolderDatasetCustom(Dataset):
     def __init__(self, rootfolder, transform=None, data_size=(448, 640),
                  focalx=320.0/np.tan(np.pi/4.5), focaly=320.0/np.tan(np.pi/4.5), centerx=320.0, centery=240.0,
                  max_traj_len=100, max_dataset_traj_num=1000):
-        print("TrajFolderDatasetCustom")
-
-        print("using custom dataset, dataset intrinsics:")
-        print("focalx:" + str(focalx) + " focaly:" + str(focaly) + " centerx:" + str(centerx) + " centery:" + str(centery))
+        # print("TrajFolderDatasetCustom")
+        #
+        # print("using custom dataset, dataset intrinsics:")
+        # print("focalx:" + str(focalx) + " focaly:" + str(focaly) + " centerx:" + str(centerx) + " centery:" + str(centery))
         self.focalx = focalx
         self.focaly = focaly
         self.centerx = centerx
@@ -268,10 +268,10 @@ class TrajFolderDatasetCustom(Dataset):
             self.perspective_list.append(perspective)
             self.mask_list.append(mask_tensor)
 
-        print('Find {} image files from {} trajectories and {} datasets in root folder:{}'.format(tot_files_num, self.N,
-                                                                                      self.datasets_num, rootfolder))
-        print("trajectories found:")
-        print(self.traj_names)
+        # print('Find {} image files from {} trajectories and {} datasets in root folder:{}'.format(tot_files_num, self.N,
+        #                                                                               self.datasets_num, rootfolder))
+        # print("trajectories found:")
+        # print(self.traj_names)
 
     def process_imgfiles(self, img_files):
         img1_list = []
@@ -382,9 +382,8 @@ class MultiTrajFolderDatasetCustom(Dataset):
                  max_traj_len=100, max_dataset_traj_num=100, max_traj_datasets=10, folder_indices_list=None,
                  perspective_padding=(0, 0)):
 
-        print("using custom dataset, dataset intrinsics:")
-        print("focalx:" + str(focalx) + " focaly:" + str(focaly) + " centerx:" + str(centerx) + " centery:" + str(
-            centery))
+        # print("using custom dataset, dataset intrinsics:")
+        # print("focalx:" + str(focalx) + " focaly:" + str(focaly) + " centerx:" + str(centerx) + " centery:" + str(centery))
         self.focalx = focalx
         self.focaly = focaly
         self.centerx = centerx
@@ -464,11 +463,11 @@ class MultiTrajFolderDatasetCustom(Dataset):
             self.processed_traj_folders += processed_dataset_traj_folders
 
 
-        print('Find {} trajectories within {} datasets in root folder:{}'.format(self.N, self.datasets_num, rootfolder))
-        print('Each trajectory contains {} images, and {} images in total within {} trajectories'.format(self.traj_len, tot_files_num, self.N))
-
-        print("trajectories found:")
-        print(self.traj_names)
+        # print('Find {} trajectories within {} datasets in root folder:{}'.format(self.N, self.datasets_num, rootfolder))
+        # print('Each trajectory contains {} images, and {} images in total within {} trajectories'.format(self.traj_len, tot_files_num, self.N))
+        #
+        # print("trajectories found:")
+        # print(self.traj_names)
 
     def process_imgfiles(self, img_files):
         img1_list = []
@@ -642,9 +641,8 @@ class MultiTrajFolderDatasetRealData(Dataset):
                  max_traj_len=100, max_dataset_traj_num=100, max_traj_datasets=10, folder_indices_list=None,
                  perspective_padding=(0, 0)):
 
-        print("using custom dataset, dataset intrinsics:")
-        print("focalx:" + str(focalx) + " focaly:" + str(focaly) + " centerx:" + str(centerx) + " centery:" + str(
-            centery))
+        # print("using custom dataset, dataset intrinsics:")
+        # print("focalx:" + str(focalx) + " focaly:" + str(focaly) + " centerx:" + str(centerx) + " centery:" + str(centery))
         self.focalx = focalx
         self.focaly = focaly
         self.centerx = centerx
@@ -752,11 +750,11 @@ class MultiTrajFolderDatasetRealData(Dataset):
                 self.processed_traj_folders += processed_dataset_traj_folders
                 tot_files_num += self.traj_len * len(processed_dataset_traj_folders)
 
-        print('processed data folder:{}, contains {} trajectories within {} datasets'.format(processed_data_folder, self.N, self.datasets_num))
-        print('Each trajectory contains {} images, and {} images in total within {} trajectories'.format(self.traj_len, tot_files_num, self.N))
-
-        print("trajectories found:")
-        print(self.traj_names)
+        # print('processed data folder:{}, contains {} trajectories within {} datasets'.format(processed_data_folder, self.N, self.datasets_num))
+        # print('Each trajectory contains {} images, and {} images in total within {} trajectories'.format(self.traj_len, tot_files_num, self.N))
+        #
+        # print("trajectories found:")
+        # print(self.traj_names)
 
     def process_imgfiles(self, img_files):
         img1_list = []

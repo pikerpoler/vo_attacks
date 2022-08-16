@@ -8,6 +8,7 @@ import torch
 import matplotlib.pyplot as plt
 
 from attacks.noisepgd import NoisePGD
+from attacks import Const
 from utils import get_args, compute_VO_args
 import numpy as np
 from Datasets.utils import plot_traj, visflow
@@ -540,16 +541,22 @@ def run_attacks_train(args):
     best_pert, clean_loss_list, all_loss_list, all_best_loss_list = \
         attack.perturb(args.testDataloader, motions_target_list, eps=args.eps, device=args.device, eval_data_loader=args.valDataloader, eval_y_list=eval_y_list)
 
+
     torch.save(all_loss_list, os.path.join(args.output_dir, 'all_loss_list.pt'))
     components_listname = args.output_dir.split('/')
-    if isinstance(attack, NoisePGD):
-        suffix = '_noise_' + str(attack.noise)
-    else:
-        suffix = ''
-    listname = components_listname[-5] + "_" + components_listname[-2] + "_" + components_listname[-1] + suffix + '.pt'  # + "-" + components_listname[-3]
+
+    # listname = components_listname[-5] + "_" + components_listname[-2] + "_" + components_listname[-1] + suffix + '.pt'  # + "-" + components_listname[-3]
+    listname = ''
+    for component in components_listname[:-1]:
+        listname += '_' + component
+    listname += '_' + components_listname[-1] + '.pt'
+    listname = listname.split('opt_whole_trajectory')[-1]  # this is not elegant, but it works
     list_path = os.path.join("results/loss_lists", listname)
-    print(f'saving all_loss_list to {list_path}')
-    torch.save(all_loss_list, list_path)
+    if not isinstance(attack, Const):
+        print(f'saving all_loss_list to {list_path}')
+        torch.save(all_loss_list, list_path)
+
+
     if args.save_best_pert:
         pert_as_image = best_pert if len(best_pert.shape) == 3 else best_pert[0]
         save_image(pert_as_image, args.adv_best_pert_dir + '/' + 'adv_best_pert.png')
