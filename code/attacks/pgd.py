@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import torch
 from attacks.attack import Attack
@@ -24,10 +26,12 @@ class PGD(Attack):
             sample_window_stride=None,
             pert_padding=(0, 0),
             init_pert_path=None,
-            init_pert_transform=None):
+            init_pert_transform=None,
+            run_name=''
+    ):
         super(PGD, self).__init__(model, criterion, test_criterion, norm, data_shape,
                                   sample_window_size, sample_window_stride,
-                                  pert_padding)
+                                  pert_padding, run_name)
 
         self.alpha = alpha
 
@@ -173,14 +177,16 @@ class PGD(Attack):
             pert = self.project(pert, eps)
 
             for k in tqdm(range(self.n_iter)):
-                print(f" attack optimization epoch: {str(k)}\n")
+                print(f" attack optimization epoch: {str(k)}    \n")
                 iter_start_time = time.time()
 
                 pert = self.gradient_ascent_step(pert, data_shape, data_loader, y_list, clean_flow_list,
                                         multiplier, a_abs, eps, device=device)
 
                 step_runtime = time.time() - iter_start_time
-                print(" optimization epoch finished, epoch runtime: " + str(step_runtime))
+                print(f" optimization epoch finished, epoch runtime: {str(step_runtime)}    \n")
+
+
 
                 print(" evaluating perturbation")
                 eval_start_time = time.time()
@@ -206,6 +212,12 @@ class PGD(Attack):
                     print(" current trajectories loss sum:" + str(eval_loss_tot))
                     print(" current trajectories best loss sum:" + str(best_loss_sum))
                     print(" trajectories clean loss sum:" + str(clean_loss_sum))
+
+                    pert_dir = 'pertubations/' + self.run_name
+                    if not os.path.exists(pert_dir):
+                        os.makedirs(pert_dir)
+                    save_image(pert, pert_dir + '/pert_' + str(k) + '_' + str(eval_loss_tot) + '.png')
+
                     del eval_loss_tot
                     del eval_loss_list
                     torch.cuda.empty_cache()

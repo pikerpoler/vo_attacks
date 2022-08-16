@@ -1,12 +1,18 @@
+import os
+
 import numpy as np
 import torch
 from Datasets.tartanTrajFlowDataset import extract_traj_data
 from attacks.attack import Attack
 import time
 
+from torch import nn
 from torch.nn import ConvTranspose2d, Sequential
+from torchvision.utils import save_image
 from tqdm import tqdm
 import cv2
+
+
 
 
 class PertGenerator(torch.nn.Module):
@@ -17,55 +23,109 @@ class PertGenerator(torch.nn.Module):
     def __init__(self, pert_shape):
         super(PertGenerator, self).__init__()
         self.pert_shape = pert_shape
-        # self.kernel_size = 4
-        # self.kernel = torch.ones(1, 1, kernel_size, kernel_size)
-        # self.kernel = torch.tensor([[[[1, 0, 1, 0],
-        #                     [1, 0, 1, 1],
-        #                     [1, 1, 0, 0],
-        #                     [0, 0, 0, 1]]]], dtype=torch.float32)
 
-        # self.kernel = torch.rand(1, 1, 224, 320)
-        # c1 = ConvTranspose2d(1, 1, kernel_size=(6, 6), stride=(4, 4), padding=2)
-        # c2 = ConvTranspose2d(1, 2, kernel_size=(13, 19), stride=(5, 5), padding=2)
-        # c3 = ConvTranspose2d(2, 3, kernel_size=(14, 12), stride=(6, 8), padding=2)
-        #
-        self.kernel = torch.ones(1, 1, 1, 1)
-        # c1 = ConvTranspose2d(1, 1, kernel_size=(70, 100), stride=(1, 1), padding=0)
-        # c2 = ConvTranspose2d(1, 2, kernel_size=(70, 100), stride=(1, 1), padding=0)
-        # c3 = ConvTranspose2d(2, 3, kernel_size=(35, 47), stride=(3, 3), padding=1, output_padding=1)
-        #
-        # self.cnn = Sequential(c1, c2, c3)
-
-
-        ''' 
-        # best so far:
-        Average target_rms_crit_adv_delta = 0.11246040026657284
-        Average mean_partial_rms_crit_adv_delta = 0.4526335008442402     
         '''
+        old architecture version:
+        self.kernel = torch.ones(1, 1, 1, 1)
+        c1 = ConvTranspose2d(1, 1, kernel_size=(70, 100), stride=(1, 1), padding=0)
+        c2 = ConvTranspose2d(1, 2, kernel_size=(70, 100), stride=(1, 1), padding=0)
+        c3 = ConvTranspose2d(2, 3, kernel_size=(35, 47), stride=(3, 3), padding=1, output_padding=1)
+
+        self.cnn = Sequential(c1, c2, c3)
+        '''
+
+        '''
+        # best so far:
+        # Average target_rms_crit_adv_delta = 0.11246040026657284
+        # Average mean_partial_rms_crit_adv_delta = 0.4526335008442402
+        
         c1 = ConvTranspose2d(1, 20, kernel_size=(7, 10), stride=(1, 1), padding=(0, 1))
         c2 = ConvTranspose2d(20, 30, kernel_size=(14, 25), stride=(2, 2), padding=(1, 2))
         c3 = ConvTranspose2d(30, 20, kernel_size=(35, 50), stride=(3, 3), padding=(4, 7))
         c4 = ConvTranspose2d(20, 3, kernel_size=(70, 100), stride=(4, 4), padding=(1, 4))
         self.cnn = Sequential(c1, c2, c3, c4)
 
-        # c1 = ConvTranspose2d(1, 3, kernel_size=(448, 640), stride=(1, 1), padding=(0, 0))
-        # self.cnn = Sequential(c1)
+        c1 = ConvTranspose2d(1, 3, kernel_size=(448, 640), stride=(1, 1), padding=(0, 0))
+        self.cnn = Sequential(c1)
+        
+        '''
 
-        # self.kernel = torch.ones(1, 200, 14, 20)
-        # channels = [200, 1500, 1000, 500, 25, 3]
-        # up_layers = []
-        # for i in range(5):
-        #     up_layers.append(ConvTranspose2d(channels[i], channels[i], kernel_size=3, stride=1, padding=1, dilation=1))
-        #     # up_layers.append(torch.nn.ReLU())  # without its 102 and with its 103
-        #     up_layers.append(
-        #         ConvTranspose2d(channels[i], channels[i + 1], kernel_size=3, stride=2, padding=1, dilation=1,
-        #                         output_padding=1))
-        # self.cnn = Sequential(*up_layers)
-
-
+        self.kernel = 100 * torch.ones(1, 200, 14, 20)
+        channels = [200, 150, 100, 50, 25, 3]
+        up_layers = []
+        for i in range(5):
+            up_layers.append(ConvTranspose2d(channels[i], channels[i], kernel_size=3, stride=1, padding=1, dilation=1))
+            # up_layers.append(torch.nn.ReLU())  # without its 102 and with its 103
+            up_layers.append(
+                ConvTranspose2d(channels[i], channels[i + 1], kernel_size=3, stride=2, padding=1, dilation=1,
+                                output_padding=1))
+        self.cnn = Sequential(*up_layers)
 
     def sample(self, device):
-        return self.cnn(self.kernel.to(device))
+        return torch.clamp(self.cnn(self.kernel.to(device)),0 , 255)
+
+
+def random_initiation():
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    encoder = AdjEncoder(out_channels=3).to(device)
+    kernel_shape = encoder.output_shape
+    print(f'kernel shape: {kernel_shape}')
+    model = AdjDecoder(in_channels=3, kernel_shape=kernel_shape).to(device)
+    return model
+
+kernel_sizes = 10 * [(3,3)]
+inner_channels = [200, 200, 150, 150, 100, 100, 50, 50, 25, 25, 3, 3]
+strides = 5 * [1, 2]
+
+class AdjEncoder(torch.nn.Module):
+    #this class' whole purpose is to calculate the kernel shape
+    def __init__(self, out_channels):
+        super(AdjEncoder, self).__init__()
+        layers = []
+        prev_channel = 3
+        for i, filter in enumerate(kernel_sizes):
+            if i < len(kernel_sizes) - 1:
+                current_channel = inner_channels[i]
+            else:
+                current_channel = out_channels
+            layers.append(nn.Conv2d(prev_channel, current_channel, filter, 1, 0))
+            layers.append(nn.ReLU())
+            prev_channel = current_channel
+        self.cnn = nn.Sequential(*layers)
+        temp = torch.randn(1, 3, 448, 640)
+        self.output_shape = self.forward(temp).shape
+
+    def forward(self, x):
+        return torch.clamp(self.cnn(x), min=0, max=2)
+
+class AdjDecoder(torch.nn.Module):
+    def __init__(self, in_channels, kernel_shape, kernel_value=100):
+        super(AdjDecoder, self).__init__()
+        layers = []
+        prev_channel = in_channels
+        for i, filter in enumerate(reversed(kernel_sizes)):  # reversed??
+            if i < len(kernel_sizes) - 1:
+                current_channel = inner_channels[i]
+            else:
+                current_channel = 3
+            layers.append(nn.ConvTranspose2d(prev_channel, current_channel, filter, 1, 0))
+            layers.append(nn.ReLU(inplace=True))
+            prev_channel = current_channel
+        self.cnn = nn.Sequential(*layers)
+        self.kernel_shape = kernel_shape
+        self.kernel_value = kernel_value
+
+    def forward(self, x):
+
+        return torch.clamp(self.cnn(x), 0, 255)
+
+    def sample(self, device, seed=None):
+        if seed is None:
+            pert = self.forward(self.kernel_value * torch.ones(self.kernel_shape).to(device))
+        else:
+            pert = self.forward(seed)
+        return torch.clamp(pert, 0, 255)
+
 
 class ConvPGD(Attack):
     def __init__(
@@ -84,12 +144,13 @@ class ConvPGD(Attack):
             pert_padding=(0, 0),
             init_pert_path=None,
             init_pert_transform=None,
+            run_name='',
             generator=None,
 
     ):
         super(ConvPGD, self).__init__(model, criterion, test_criterion, norm, data_shape,
                                   sample_window_size, sample_window_stride,
-                                  pert_padding)
+                                  pert_padding, run_name)
 
         self.alpha = alpha
 
@@ -99,8 +160,12 @@ class ConvPGD(Attack):
             self.generator = generator
         else:
             self.generator = PertGenerator(data_shape)
+        # self.generator = random_initiation()
         self.optimizer = torch.optim.Adam(self.generator.parameters(), lr=alpha)
 
+        # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, n_iter, 1e-6)
+        # self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, n_iter, gamma=0.1)
+        self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lambda epoch: alpha/np.log(epoch + 2))
     #
     # def calc_sample_grad_single(self, pert, img1_I0, img2_I0, intrinsic_I0, img1_delta, img2_delta,
     #                      scale, y, clean_flow, target_pose, perspective1, perspective2, mask1, mask2, device=None):
@@ -211,12 +276,6 @@ class ConvPGD(Attack):
             pert = self.project(pert, eps)
             pert_expand = pert.expand(data_shape[0], -1, -1, -1).to(device)
 
-            # grad = self.calc_sample_grad(pert_expand, img1_I0, img2_I0, intrinsic_I0,
-            #                              img1_delta, img2_delta,
-            #                              scale, y_list[data_idx], clean_flow_list[data_idx], patch_pose,
-            #                              perspective1, perspective2,
-            #                              mask1, mask2, device=device)
-            # grad = grad.sum(dim=0, keepdims=True).detach()
 
             img1_adv, img2_adv, output_adv = self.perturb_model_single(pert_expand, img1_I0, img2_I0,
                                                                        intrinsic_I0,
@@ -251,6 +310,7 @@ class ConvPGD(Attack):
             torch.cuda.empty_cache()
 
         self.optimizer.step()
+        self.scheduler.step()
 
 
 
@@ -313,6 +373,12 @@ class ConvPGD(Attack):
                     print(" current trajectories loss sum:" + str(eval_loss_tot))
                     print(" current trajectories best loss sum:" + str(best_loss_sum))
                     print(" trajectories clean loss sum:" + str(clean_loss_sum))
+
+                    pert_dir = 'pertubations/' + self.run_name
+                    if not os.path.exists(pert_dir):
+                        os.makedirs(pert_dir)
+                    save_image(pert, pert_dir + '/pert_' + str(k) + '_' + str(eval_loss_tot) + '.png')
+
                     del eval_loss_tot
                     del eval_loss_list
                     torch.cuda.empty_cache()

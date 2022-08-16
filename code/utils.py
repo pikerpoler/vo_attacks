@@ -79,7 +79,7 @@ def parse_args():
     # adversarial attacks params
     parser.add_argument('--attack', default='pgd', type=str, metavar='ATT', help='attack type')
     parser.add_argument('--attack_norm', default='Linf', type=str, metavar='ATTL', help='norm used for the attack')
-    parser.add_argument('--attack_k', default=100, type=int, metavar='ATTK', help='number of iterations for the attack')
+    parser.add_argument('--attack_k', default=50, type=int, metavar='ATTK', help='number of iterations for the attack')
     parser.add_argument('--alpha', type=float, default=0.05)
     parser.add_argument('--noise', type=float, default=0.001)
     parser.add_argument('--eps', type=float, default=1)
@@ -269,7 +269,8 @@ def compute_attack_args(args):
                                           sample_window_size=args.window_size,
                                           sample_window_stride=args.window_stride,
                                           init_pert_path=args.load_attack,
-                                          init_pert_transform=load_pert_transform)
+                                          init_pert_transform=load_pert_transform,
+                                          run_name=args.run_name)
 
     return args
 
