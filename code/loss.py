@@ -162,6 +162,8 @@ class VOCriterion:
             self.calc_t_crit = self.calc_partial_poses_t
         elif t_crit == 'mean_partial_rms':
             self.calc_t_crit = self.calc_mean_partial_poses_t
+        elif t_crit == 'explode':
+            self.calc_t_crit = self.calc_explode_t
         else:
             self.calc_t_crit = self.calc_cumul_poses_t
 
@@ -202,6 +204,10 @@ class VOCriterion:
 
     def calc_none(self, est, preprocessed_gt):
         return 0
+
+    def calc_explode_t(self, motions, motions_gt, target_pose):
+        dist = torch.nn.functional.mse_loss(motions, torch.zeros_like(motions))
+        return dist, 0
 
     def calc_partial_poses_t(self, motions, motions_gt, target_pose):
         rel_poses = self.rtvec_to_pose(motions)
