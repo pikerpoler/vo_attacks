@@ -10,7 +10,7 @@ import numpy as np
 class Attack:
     def __init__(self, model, criterion, test_criterion, norm, data_shape,
                  sample_window_size=None, sample_window_stride=None,
-                 pert_padding=(0, 0)):
+                 pert_padding=(0, 0), run_name=''):
         self.model = model
         self.criterion = criterion
         self.test_criterion = test_criterion
@@ -18,6 +18,7 @@ class Attack:
         self.p = float(self.norm[1:])
         self.data_len = data_shape[0]
         self.data_size = (data_shape[1], data_shape[2])
+        self.run_name = run_name
 
         self.sample_window_size = sample_window_size
         self.sample_window_stride = sample_window_stride
