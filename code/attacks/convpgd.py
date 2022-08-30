@@ -13,7 +13,66 @@ from tqdm import tqdm
 import cv2
 
 
+def normalize_generator(generator):
+    def myloss(tensor_image):
+        zeros = torch.zeros(tensor_image.shape)
+        upper_error = torch.nn.L1Loss()(torch.nn.ReLU()(tensor_image - 0.9), zeros)
+        lower_error = torch.nn.L1Loss()(torch.nn.ReLU()(0.1 + (-1) * tensor_image), zeros)
+        print(lower_error.item(), upper_error.item())
+        return lower_error + upper_error
 
+    optimizer = torch.optim.SGD(generator.parameters(), lr=0.01, momentum=0.9)
+    for i in range(30):
+        output = generator.sample()
+        # output = generator(torch.randn(generator.seed.shape))
+        loss = myloss(output)
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+        print(f"epoch {i}, loss:{loss.item()}")
+    return generator
+
+class ImgGen(nn.Module):
+    def __init__(self, shape=(3, 64, 64), seed_shape=(3, 32, 32)):
+        super(ImgGen, self).__init__()
+        self.seed = torch.randn(*seed_shape)
+        self.output_shape = shape
+        self.output_num = torch.ones(self.output_shape).flatten().shape[0]
+        self.linear = torch.nn.Linear(self.seed.flatten().shape[0], self.output_num)
+        self.linear.weight.data.uniform_(-0.01, 0.03)
+
+    def sample(self):
+        return self.forward(self.seed)
+
+    def forward(self, x):
+        if len(x.shape) == 1:
+            return self.linear(x).view(self.output_shape)
+        else:
+            output = self.linear(x.flatten())
+            return output.view(self.output_shape)
+
+class MLP_GEN(nn.Module):
+    def __init__(self):
+        super(MLP_GEN, self).__init__()
+        seed_dim = 2
+        h_dim = 8
+        self.seed = torch.FloatTensor(3, seed_dim, seed_dim).uniform_(0, 1)
+        linear1 = ImgGen(shape=(3, h_dim, h_dim), seed_shape=(3, seed_dim, seed_dim))
+        relu = nn.ReLU()
+        linear2 = ImgGen(shape=(3, 448, 640), seed_shape=(3, h_dim, h_dim))
+        self.output_shape = (3, 448, 640)
+        self.sequential = torch.nn.Sequential(linear1,relu, linear2)
+
+    def sample(self, device):
+        return self.forward(self.seed.to(device))
+
+    def forward(self, x):
+        if len(x.shape) == 1:
+            x = self.sequential(x).view(self.output_shape)
+        else:
+            output = self.sequential(x.flatten())
+            x = output.view(self.output_shape)
+        return x
 
 class PertGenerator(torch.nn.Module):
 
@@ -50,19 +109,20 @@ class PertGenerator(torch.nn.Module):
         
         '''
 
-        self.kernel = 100 * torch.ones(1, 200, 14, 20)
+        self.kernel = torch.nn.Parameter(100 * torch.ones(1, 200, 14, 20))
         channels = [200, 150, 100, 50, 25, 3]
         up_layers = []
         for i in range(5):
             up_layers.append(ConvTranspose2d(channels[i], channels[i], kernel_size=3, stride=1, padding=1, dilation=1))
             # up_layers.append(torch.nn.ReLU())  # without its 102 and with its 103
+            up_layers.append(torch.nn.Dropout(0.1))
             up_layers.append(
                 ConvTranspose2d(channels[i], channels[i + 1], kernel_size=3, stride=2, padding=1, dilation=1,
                                 output_padding=1))
         self.cnn = Sequential(*up_layers)
 
     def sample(self, device):
-        return torch.clamp(self.cnn(self.kernel.to(device)),0 , 255)
+        return torch.clamp(self.cnn(self.kernel.to(device)),0 , 1)
 
 
 def random_initiation():
@@ -96,7 +156,7 @@ class AdjEncoder(torch.nn.Module):
         self.output_shape = self.forward(temp).shape
 
     def forward(self, x):
-        return torch.clamp(self.cnn(x), min=0, max=2)
+        return torch.clamp(self.cnn(x), min=0, max=1)
 
 class AdjDecoder(torch.nn.Module):
     def __init__(self, in_channels, kernel_shape, kernel_value=100):
@@ -117,14 +177,14 @@ class AdjDecoder(torch.nn.Module):
 
     def forward(self, x):
 
-        return torch.clamp(self.cnn(x), 0, 255)
+        return torch.clamp(self.cnn(x), 0, 1)
 
     def sample(self, device, seed=None):
         if seed is None:
             pert = self.forward(self.kernel_value * torch.ones(self.kernel_shape).to(device))
         else:
             pert = self.forward(seed)
-        return torch.clamp(pert, 0, 255)
+        return torch.clamp(pert, 0, 1)
 
 
 class ConvPGD(Attack):
@@ -164,102 +224,8 @@ class ConvPGD(Attack):
         self.optimizer = torch.optim.Adam(self.generator.parameters(), lr=alpha)
 
         # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, n_iter, 1e-6)
-        # self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, n_iter, gamma=0.1)
-        self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lambda epoch: alpha/np.log(epoch + 2))
-    #
-    # def calc_sample_grad_single(self, pert, img1_I0, img2_I0, intrinsic_I0, img1_delta, img2_delta,
-    #                      scale, y, clean_flow, target_pose, perspective1, perspective2, mask1, mask2, device=None):
-    #     pert = pert.detach()
-    #     pert.requires_grad_()
-    #     img1_adv, img2_adv, output_adv = self.perturb_model_single(pert, img1_I0, img2_I0,
-    #                                                         intrinsic_I0,
-    #                                                         img1_delta, img2_delta,
-    #                                                         scale,
-    #                                                         mask1, mask2,
-    #                                                         perspective1,
-    #                                                         perspective2,
-    #                                                         device)
-    #     loss = self.criterion(output_adv, scale.to(device), y.to(device), target_pose.to(device), clean_flow.to(device))
-    #     loss_sum = loss.sum(dim=0)
-    #     grad = torch.autograd.grad(loss_sum, [pert])[0].detach()
-    #
-    #     del img1_adv
-    #     del img2_adv
-    #     del output_adv
-    #     del loss
-    #     del loss_sum
-    #     torch.cuda.empty_cache()
-    #
-    #     return grad
-    #
-    # def calc_sample_grad_split(self, pert, img1_I0, img2_I0, intrinsic_I0, img1_delta, img2_delta,
-    #                      scale, y, clean_flow, target_pose, perspective1, perspective2, mask1, mask2, device=None):
-    #     sample_data_ind = list(range(img1_I0.shape[0] + 1))
-    #     window_start_list = sample_data_ind[0::self.sample_window_stride]
-    #     window_end_list = sample_data_ind[self.sample_window_size::self.sample_window_stride]
-    #
-    #     if window_end_list[-1] != sample_data_ind[-1]:
-    #         window_end_list.append(sample_data_ind[-1])
-    #     grad = torch.zeros_like(pert, requires_grad=False)
-    #     grad_multiplicity = torch.zeros(grad.shape[0], device=grad.device, dtype=grad.dtype)
-    #
-    #     for window_idx, window_end in enumerate(window_end_list):
-    #         window_start = window_start_list[window_idx]
-    #         grad_multiplicity[window_start:window_end] += 1
-    #
-    #         pert_window = pert[window_start:window_end].clone().detach()
-    #         img1_I0_window = img1_I0[window_start:window_end].clone().detach()
-    #         img2_I0_window = img2_I0[window_start:window_end].clone().detach()
-    #         intrinsic_I0_window = intrinsic_I0[window_start:window_end].clone().detach()
-    #         img1_delta_window = img1_delta[window_start:window_end].clone().detach()
-    #         img2_delta_window = img2_delta[window_start:window_end].clone().detach()
-    #         scale_window = scale[window_start:window_end].clone().detach()
-    #         y_window = y[window_start:window_end].clone().detach()
-    #         clean_flow_window = clean_flow[window_start:window_end].clone().detach()
-    #         target_pose_window = target_pose.clone().detach()
-    #         perspective1_window = perspective1[window_start:window_end].clone().detach()
-    #         perspective2_window = perspective2[window_start:window_end].clone().detach()
-    #         mask1_window = mask1[window_start:window_end].clone().detach()
-    #         mask2_window = mask2[window_start:window_end].clone().detach()
-    #
-    #         grad_window = self.calc_sample_grad_single(pert_window,
-    #                                                  img1_I0_window,
-    #                                                  img2_I0_window,
-    #                                                  intrinsic_I0_window,
-    #                                                  img1_delta_window,
-    #                                                  img2_delta_window,
-    #                                                  scale_window,
-    #                                                  y_window,
-    #                                                  clean_flow_window,
-    #                                                  target_pose_window,
-    #                                                  perspective1_window,
-    #                                                  perspective2_window,
-    #                                                  mask1_window,
-    #                                                  mask2_window,
-    #                                                  device=device)
-    #         with torch.no_grad():
-    #             grad[window_start:window_end] += grad_window
-    #
-    #         del grad_window
-    #         del pert_window
-    #         del img1_I0_window
-    #         del img2_I0_window
-    #         del intrinsic_I0_window
-    #         del scale_window
-    #         del y_window
-    #         del clean_flow_window
-    #         del target_pose_window
-    #         del perspective1_window
-    #         del perspective2_window
-    #         del mask1_window
-    #         del mask2_window
-    #         torch.cuda.empty_cache()
-    #     grad_multiplicity_expand = grad_multiplicity.view(-1, 1, 1, 1).expand(grad.shape)
-    #     grad = grad / grad_multiplicity_expand
-    #     del grad_multiplicity
-    #     del grad_multiplicity_expand
-    #     torch.cuda.empty_cache()
-    #     return grad.to(device)
+        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 5, gamma=2)
+        # self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lambda epoch: alpha/np.log(epoch + 2))
 
     def gradient_ascent_step(self, data_shape, data_loader, y_list, clean_flow_list,eps ,device=None):
 
@@ -289,6 +255,7 @@ class ConvPGD(Attack):
                                   clean_flow_list[data_idx].to(device))
             loss_sum = -loss.sum(dim=0)
             loss_sum.backward()
+            # self.generator = normalize_generator(self.generator)
 
             del img1_I0
             del img2_I0
@@ -310,7 +277,7 @@ class ConvPGD(Attack):
             torch.cuda.empty_cache()
 
         self.optimizer.step()
-        self.scheduler.step()
+        # self.scheduler.step()
 
 
 

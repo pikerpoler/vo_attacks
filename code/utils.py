@@ -35,7 +35,7 @@ def parse_args():
     parser.add_argument('--save_imgs', action='store_true', default=False, help='save images (default: False)')
     parser.add_argument('--save_best_pert', action='store_false', default=True, help='save best pert (default: True)')
     parser.add_argument('--save_csv', action='store_true', default=False, help='save results csv (default: False)')
-    parser.add_argument('--run_name', default='', help='name of run for graphs (default: None)')
+    parser.add_argument('--run_name', default='', help='name of run for graphs (default: '')')
     # data loader params
     parser.add_argument('--batch-size', type=int, default=1)
     parser.add_argument('--worker-num', type=int, default=1,
@@ -63,6 +63,10 @@ def parse_args():
                         help='test trajectory folder where the RGB images are (default: None)')
     parser.add_argument('--processed_val_dir', default='data/validation_processed_8frames',
                         help='folder to save processed dataset tensors (default: None)')
+    # parser.add_argument('--val-dir', default="VO_adv_project_train_dataset_8_frames",
+    #                     help='test trajectory folder where the RGB images are (default: None)')
+    # parser.add_argument('--processed_val_dir', default='data/VO_adv_project_train_dataset_8_frames_processed',
+    #                     help='folder to save processed dataset tensors (default: None)')
 
     parser.add_argument('--pose-file', default='',
                         help='test trajectory gt pose file, used for scale calculation, and visualization (default: "")')

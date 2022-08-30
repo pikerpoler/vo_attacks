@@ -547,10 +547,10 @@ def run_attacks_train(args):
 
     # listname = components_listname[-5] + "_" + components_listname[-2] + "_" + components_listname[-1] + suffix + '.pt'  # + "-" + components_listname[-3]
     listname = ''
-    for component in components_listname[:-1]:
+    for component in components_listname:
         listname += '_' + component
-    listname += '_' + components_listname[-1] + '.pt'
-    listname = listname.split('opt_whole_trajectory')[-1]  # this is not elegant, but it works
+    listname += '.pt'
+    listname = listname.split('opt_whole_trajectory')[-1]  # cutting down listname length this way is not elegant, but it works for now. alternatively you can save only run name, but this way custom filtration might be added in the future
     list_path = os.path.join("results/loss_lists", listname)
     if not isinstance(attack, Const):
         print(f'saving all_loss_list to {list_path}')
