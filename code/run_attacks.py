@@ -538,7 +538,7 @@ def run_attacks_train(args):
     traj_clean_target_rms_list, traj_clean_target_mean_partial_rms_list = tuple(traj_clean_criterions_list)
 
 
-    best_pert, clean_loss_list, all_loss_list, all_best_loss_list = \
+    best_pert, clean_loss_list, all_loss_list, all_best_loss_list, train_loss_list = \
         attack.perturb(args.testDataloader, motions_target_list, eps=args.eps, device=args.device, eval_data_loader=args.valDataloader, eval_y_list=eval_y_list)
 
 
@@ -551,10 +551,17 @@ def run_attacks_train(args):
         listname += '_' + component
     listname += '.pt'
     listname = listname.split('opt_whole_trajectory')[-1]  # cutting down listname length this way is not elegant, but it works for now. alternatively you can save only run name, but this way custom filtration might be added in the future
-    list_path = os.path.join("results/loss_lists", listname)
+    eval_list_path = os.path.join("results/loss_lists/eval", listname)
+    train_list_path = os.path.join("results/loss_lists/train", listname)
     if not isinstance(attack, Const):
-        print(f'saving all_loss_list to {list_path}')
-        torch.save(all_loss_list, list_path)
+        print(f'saving all_loss_list to {eval_list_path}')
+        if not os.path.exists(os.path.dirname(eval_list_path)):
+            os.makedirs(os.path.dirname(eval_list_path))
+        torch.save(all_loss_list, eval_list_path)
+        print(f'saving train_loss_list to {train_list_path}')
+        if not os.path.exists(os.path.dirname(train_list_path)):
+            os.makedirs(os.path.dirname(train_list_path))
+        torch.save(train_loss_list, train_list_path)
 
 
     if args.save_best_pert:
@@ -585,41 +592,6 @@ def run_attacks_train(args):
     report_adv_deviation(dataset_idx_list, dataset_name_list, traj_name_list, traj_indices,
                          traj_clean_rms_list, traj_adv_rms_list,
                          args.save_csv, args.output_dir, crit_str="rms")
-
-
-def run_attacks_train_silent(args):
-    attack = args.attack_obj
-    dataset_idx_list, dataset_name_list, traj_name_list, traj_indices, \
-    motions_gt_list, traj_clean_criterions_list, traj_clean_motions = \
-        test_clean_multi_inputs(args)
-
-    motions_target_list = motions_gt_list
-    traj_clean_rms_list, traj_clean_mean_partial_rms_list, \
-    traj_clean_target_rms_list, traj_clean_target_mean_partial_rms_list = tuple(traj_clean_criterions_list)
-
-    best_pert, clean_loss_list, all_loss_list, all_best_loss_list = \
-        attack.perturb(args.testDataloader, motions_target_list, eps=args.eps, device=args.device)
-
-    traj_adv_criterions_list = \
-        test_adv_trajectories(args.testDataloader, args.model, motions_target_list, attack, best_pert,
-                              args.criterions, args.window_size,
-                              args.save_imgs, args.save_flow, args.save_pose,
-                              args.adv_img_dir, args.adv_pert_dir, args.flowdir, args.pose_dir,
-                              device=args.device)
-    traj_adv_rms_list, traj_adv_mean_partial_rms_list, \
-    traj_adv_target_rms_list, traj_adv_target_mean_partial_rms_list = tuple(traj_adv_criterions_list)
-
-
-    sum_adv_delta = 0
-    num_samples = 0
-    for traj_idx, traj_name in enumerate(traj_name_list):
-        for frame_idx, frame_clean_crit in enumerate(traj_clean_target_rms_list[traj_idx]):
-            if frame_idx == 7:
-                sum_adv_delta += traj_adv_target_rms_list[traj_idx][frame_idx]
-                num_samples += 1
-
-    avg_adv_delta = sum_adv_delta / num_samples
-    return avg_adv_delta
 
 def tune_lr_and_weights(args, alpha_list=(0.001, 0.005, 0.01, 0.05), t_factor_list=(1.0,), r_factor_list=(1.0,), f_factor_list=(1.0,)):
     losses = dict()

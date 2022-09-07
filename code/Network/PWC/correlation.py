@@ -286,7 +286,6 @@ class _FunctionCorrelation(torch.autograd.Function):
 		assert(second.is_contiguous() == True)
 
 		output = first.new_zeros([ first.shape[0], 81, first.shape[2], first.shape[3] ])
-
 		if first.is_cuda == True:
 			n = first.shape[2] * first.shape[3]
 			cupy_launch('kernel_Correlation_rearrange', cupy_kernel('kernel_Correlation_rearrange', {
@@ -297,7 +296,6 @@ class _FunctionCorrelation(torch.autograd.Function):
 				block=tuple([ 16, 1, 1 ]),
 				args=[ n, first.data_ptr(), rbot0.data_ptr() ]
 			)
-
 			n = second.shape[2] * second.shape[3]
 			cupy_launch('kernel_Correlation_rearrange', cupy_kernel('kernel_Correlation_rearrange', {
 				'input': second,
@@ -307,7 +305,6 @@ class _FunctionCorrelation(torch.autograd.Function):
 				block=tuple([ 16, 1, 1 ]),
 				args=[ n, second.data_ptr(), rbot1.data_ptr() ]
 			)
-
 			n = output.shape[1] * output.shape[2] * output.shape[3]
 			cupy_launch('kernel_Correlation_updateOutput', cupy_kernel('kernel_Correlation_updateOutput', {
 				'rbot0': rbot0,
@@ -319,7 +316,6 @@ class _FunctionCorrelation(torch.autograd.Function):
 				shared_mem=first.shape[1] * 4,
 				args=[ n, rbot0.data_ptr(), rbot1.data_ptr(), output.data_ptr() ]
 			)
-
 		elif first.is_cuda == False:
 			raise NotImplementedError()
 

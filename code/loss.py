@@ -185,6 +185,9 @@ class VOCriterion:
         self.calc_target_t_product = True
 
     def apply(self, model_output, scale, motions_gt, target_pose, flow_clean=None):
+        # print(f'scale: {scale}')
+        # print(f'motions_gt: {motions_gt}')
+        # print(f'target_pose: {target_pose}')
         motions, flow = model_output
         if target_pose is not None and self.calc_target_t_product:
             t_crit, target_t_crit = self.calc_t_crit(motions, motions_gt, target_pose)

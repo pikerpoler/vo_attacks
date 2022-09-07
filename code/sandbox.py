@@ -1,13 +1,13 @@
 # this file is for experiments like checking tensor sizes and stuff
 import os
 import random
+from math import log2
 
 import cv2
 import matplotlib.pyplot as plt
 import torchvision
 from torch import nn
 from torchvision.utils import save_image
-
 
 sandbox_backend = plt.get_backend()
 import numpy as np
@@ -18,6 +18,212 @@ from torch.nn import functional as F
 from Datasets.utils import visflow
 
 plt.switch_backend(sandbox_backend)
+
+
+
+
+class ResBlock(nn.Module):
+    def __init__(self, chan):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv2d(chan, chan, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(chan, chan, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(chan, chan, 1)
+        )
+
+    def forward(self, x):
+        return self.net(x) + x
+
+
+class DiscreteVAE(nn.Module):
+    def __init__(
+            self,
+            image_size=256,
+            num_tokens=512,
+            codebook_dim=512,
+            num_layers=3,
+            num_resnet_blocks=0,
+            hidden_dim=64,
+            channels=3,
+            smooth_l1_loss=False,
+            temperature=0.9,
+            straight_through=False,
+            kl_div_loss_weight=0.,
+            normalization=((*((0.5,) * 3), 0), (*((0.5,) * 3), 1))
+    ):
+        super().__init__()
+        assert log2(image_size).is_integer(), 'image size must be a power of 2'
+        assert num_layers >= 1, 'number of layers must be greater than or equal to 1'
+        has_resblocks = num_resnet_blocks > 0
+
+        self.channels = channels
+        self.image_size = image_size
+        self.num_tokens = num_tokens
+        self.num_layers = num_layers
+        self.temperature = temperature
+        self.straight_through = straight_through
+        self.codebook = nn.Embedding(num_tokens, codebook_dim)
+
+        hdim = hidden_dim
+
+        enc_chans = [hidden_dim] * num_layers
+        dec_chans = list(reversed(enc_chans))
+
+        enc_chans = [channels, *enc_chans]
+
+        dec_init_chan = codebook_dim if not has_resblocks else dec_chans[0]
+        dec_chans = [dec_init_chan, *dec_chans]
+
+        enc_chans_io, dec_chans_io = map(lambda t: list(zip(t[:-1], t[1:])), (enc_chans, dec_chans))
+
+        enc_layers = []
+        dec_layers = []
+
+        for (enc_in, enc_out), (dec_in, dec_out) in zip(enc_chans_io, dec_chans_io):
+            enc_layers.append(nn.Sequential(nn.Conv2d(enc_in, enc_out, 4, stride=2, padding=1), nn.ReLU()))
+            dec_layers.append(nn.Sequential(nn.ConvTranspose2d(dec_in, dec_out, 4, stride=2, padding=1), nn.ReLU()))
+
+        for _ in range(num_resnet_blocks):
+            dec_layers.insert(0, ResBlock(dec_chans[1]))
+            enc_layers.append(ResBlock(enc_chans[-1]))
+
+        if num_resnet_blocks > 0:
+            dec_layers.insert(0, nn.Conv2d(codebook_dim, dec_chans[1], 1))
+
+        enc_layers.append(nn.Conv2d(enc_chans[-1], num_tokens, 1))
+        dec_layers.append(nn.Conv2d(dec_chans[-1], channels, 1))
+
+        self.encoder = nn.Sequential(*enc_layers)
+        self.decoder = nn.Sequential(*dec_layers)
+
+        self.loss_fn = F.smooth_l1_loss if smooth_l1_loss else F.mse_loss
+        self.kl_div_loss_weight = kl_div_loss_weight
+
+        # take care of normalization within class
+        self.normalization = tuple(map(lambda t: t[:channels], normalization))
+
+    #     self._register_external_parameters()
+    #
+    # def _register_external_parameters(self):
+    #     """Register external parameters for DeepSpeed partitioning."""
+    #     if (
+    #             not distributed_utils.is_distributed
+    #             or not distributed_utils.using_backend(
+    #                 distributed_utils.DeepSpeedBackend)
+    #     ):
+    #         return
+    #
+    #     deepspeed = distributed_utils.backend.backend_module
+    #     deepspeed.zero.register_external_parameter(self, self.codebook.weight)
+
+    def norm(self, images):
+        if not exists(self.normalization):
+            return images
+
+        means, stds = map(lambda t: torch.as_tensor(t).to(images), self.normalization)
+        means, stds = map(lambda t: rearrange(t, 'c -> () c () ()'), (means, stds))
+        images = images.clone()
+        images.sub_(means).div_(stds)
+        return images
+
+    @torch.no_grad()
+    @eval_decorator
+    def get_codebook_indices(self, images):
+        logits = self(images, return_logits=True)
+        codebook_indices = logits.argmax(dim=1).flatten(1)
+        return codebook_indices
+
+    def decode(
+            self,
+            img_seq
+    ):
+        image_embeds = self.codebook(img_seq)
+        b, n, d = image_embeds.shape
+        h = w = int(sqrt(n))
+
+        image_embeds = rearrange(image_embeds, 'b (h w) d -> b d h w', h=h, w=w)
+        images = self.decoder(image_embeds)
+        return images
+
+    def forward(
+            self,
+            img,
+            return_loss=False,
+            return_recons=False,
+            return_logits=False,
+            temp=None
+    ):
+        device, num_tokens, image_size, kl_div_loss_weight = img.device, self.num_tokens, self.image_size, self.kl_div_loss_weight
+        assert img.shape[-1] == image_size and img.shape[
+            -2] == image_size, f'input must have the correct image size {image_size}'
+
+        img = self.norm(img)
+
+        logits = self.encoder(img)
+
+        if return_logits:
+            return logits  # return logits for getting hard image indices for DALL-E training
+
+        temp = default(temp, self.temperature)
+        soft_one_hot = F.gumbel_softmax(logits, tau=temp, dim=1, hard=self.straight_through)
+        sampled = einsum('b n h w, n d -> b d h w', soft_one_hot, self.codebook.weight)
+        out = self.decoder(sampled)
+
+        if not return_loss:
+            return out
+
+        # reconstruction loss
+
+        recon_loss = self.loss_fn(img, out)
+
+        # kl divergence
+
+        logits = rearrange(logits, 'b n h w -> b (h w) n')
+        log_qy = F.log_softmax(logits, dim=-1)
+        log_uniform = torch.log(torch.tensor([1. / num_tokens], device=device))
+        kl_div = F.kl_div(log_uniform, log_qy, None, None, 'batchmean', log_target=True)
+
+        loss = recon_loss + (kl_div * kl_div_loss_weight)
+
+        if not return_recons:
+            return loss
+
+        return loss, out
+
+
+
+def decoder_from_vae_ceckpoint(checkpoint_path='discrete_vae.pth'):
+    latent_dim = 3
+    vae = DiscreteVAE(
+        image_size=512,
+        num_layers=3,  # number of downsamples - ex. 256 / (2 ** 3) = (32 x 32 feature map)
+        num_tokens=latent_dim,
+        # number of visual tokens. in the paper, they used 8192, but could be smaller for downsized projects
+        codebook_dim=latent_dim,  # codebook dimension
+        hidden_dim=64,  # hidden dimension
+        num_resnet_blocks=1,  # number of resnet blocks
+        temperature=0.9,  # gumbel softmax temperature, the lower this is, the harder the discretization
+        straight_through=False,  # straight-through for gumbel softmax. unclear if it is better one way or the other
+    )
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f'Using device {device}')
+    vae.load_state_dict(torch.load(checkpoint_path, map_location=device))
+    dec = vae.decoder
+    enc = vae.encoder
+    #
+    latim = enc(torch.randn(1, 3, 512, 512))
+    seed = torch.rand(1, latent_dim, 56, 80)
+    scale=1.0
+    randim = dec(latim)
+    print(randim.shape)
+    rand_im = dec(scale * seed)[0]
+    print(rand_im.shape)
+    return dec
+
+
+
 
 
 class MyEncoder(torch.nn.Module):
@@ -198,6 +404,7 @@ class PertGeneratorT(torch.nn.Module):
         x = self.cnn(self.factor * seed)
         return torch.clamp(x, 0, 1)
 
+
 class LinConvGen(nn.Module):
 
     def linear(self, in_planes, out_planes):
@@ -377,7 +584,6 @@ class ReversedVOFlowRes(nn.Module):
 
         x = self.firstconv(x)
 
-
         return x
         # x_trans = self.voflow_trans(x)
         # x_rot = self.voflow_rot(x)
@@ -458,7 +664,7 @@ class FlowGen(nn.Module):
         for i, m in enumerate(self.modules()):
             if isinstance(m, nn.ConvTranspose2d):
                 # print(m.weight.data.mean())
-                factor = 2 + (i // 10)% 4
+                factor = 2 + (i // 10) % 4
                 print(factor)
                 m.weight.data *= factor
 
@@ -474,18 +680,21 @@ class FlowGen(nn.Module):
             seed = self.seed
         return self.forward(seed.to(device))
 
+
 def find_multiplied_numbers(target_num, array):
     def dot_prod(arr_1, arr_2):
         return sum(map(lambda x, y: x * y, arr_1, arr_2))
-    base = [int(target_num/ variable) for variable in array]
+
+    base = [int(target_num / variable) for variable in array]
     result = [0] * len(array)
     while dot_prod(result, array) != target_num:
         result[0] += 1
         for i in range(1, len(result)):
             if result[i] == base[i]:
                 result[i] = 0
-                result[i-1] += 1
+                result[i - 1] += 1
     return f"For the array {array}, the multiply array: {result}"
+
 
 def reversed_experiment():
     print('making voflo')
@@ -852,7 +1061,8 @@ def conv_pretrain():
     # optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
     loss_fn = nn.MSELoss()
     # loss_fn = nn.L1Loss()
-    targets = [(torch.randn(model.kernel.shape), torch.clamp(torch.randn(pert_shape), 0, 255).to(torch.float)) for i in range(batch_size)]
+    targets = [(torch.randn(model.kernel.shape), torch.clamp(torch.randn(pert_shape), 0, 255).to(torch.float)) for i in
+               range(batch_size)]
     # targets = {torch.clamp(torch.randn(pert_shape), 0, 255).to(torch.float) for i in range(5)}
     perts_per_round = []
     # for i in range(num_epochs):
@@ -924,6 +1134,7 @@ def conv_pretrain():
     torch.save(model, 'results/pert_generator.pt')
     # torch.save(encoder, 'results/encoder.pt')
 
+
 def load_gen_and_train():
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = torch.load('results/pert_generator.pt', map_location=device)
@@ -968,9 +1179,97 @@ def load_conv_experiment():
     plt.show()
 
 
+def optimize_flow_experiment():
+    from loss import VOCriterion
+    from Network.VOFlowNet import VOFlowRes as FlowPoseNet
+    from Network.PWC import PWCDCNet as FlowNet
+    torch.manual_seed(42)
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    img_shape = [1, 3, 448, 640]
+    flow_shape = [1, 2, 112, 160]
+    flowPoseNet = FlowPoseNet().to(device)
+    intrinsic_I0 = torch.load('intrinsic_I0.pt').to(device)
+    intrinsic = intrinsic_I0[0].unsqueeze(0)
+    # flow = flowNet.to(device)(torch.randn(input_shape).to(device), torch.randn(input_shape).to(device))
+    # print(f'flow shape: {flow_shape}')
+    flow = torch.nn.Parameter(torch.randn(flow_shape, requires_grad=True).to(device))
+    flow_input = torch.cat((flow, intrinsic), dim=1)
+    output = flowPoseNet(flow_input)
+    # print(output)
+
+    num_epochs = 100
+    lr = 1.001
+    lr2 = 0.001
+    optimizer = torch.optim.Adam([flow], lr)
+    loss_fn = VOCriterion()
+    default_motions = torch.zeros_like(output).to(device)
+    target_pose = torch.tensor([[5.0000e+01, 7.8015e-06, -1.6291e-06]]).to(device)
+    scale = torch.tensor([0.1667]).to(device)
+    first_up_loss = None
+    last_up_loss = None
+    first_down_loss = None
+    last_down_loss = None
+    for i in range(num_epochs):
+        optimizer.zero_grad()
+        flow_input = torch.cat((flow, intrinsic), dim=1)
+        output = flowPoseNet(flow_input)
+        loss = -loss_fn((output, flow), scale, default_motions, target_pose)
+        loss = loss.sum()
+        loss.backward()
+        optimizer.step()
+        if first_up_loss is None:
+            first_up_loss = -loss.item()
+        last_up_loss = -loss.item()
+        if (i) % (num_epochs // 10) == 0:
+            print(f"epoch {i}, loss:{-loss.item()}")
+
+    flow.requires_grad = False
+    # target_flow = torch.randn(flow_shape).to(device)
+    flownet = FlowNet().to(device)
+    img1 = torch.clamp(torch.randn(img_shape).to(device),0,1)
+    img2 = torch.clamp(torch.randn(img_shape).to(device),0,1)
+    patch = torch.nn.Parameter(torch.clamp(torch.randn(1, 3, 100, 100, requires_grad=True),0,1).to(device))
+    optimizer2 = torch.optim.Adam([patch], lr2)
+    # loss_fn2 = nn.MSELoss()
+    loss_fn2 = nn.L1Loss()
+
+
+    for i in range(10*num_epochs):
+        optimizer2.zero_grad()
+        img1[:, :, 200:300, 200:300] = patch
+        img2[:, :, 200:300, 200:300] = patch
+        # img1 = torch.clamp(img1, 0, 1)
+        # img2 = torch.clamp(img2, 0, 1)
+        output = flownet(img1, img2)
+        loss = loss_fn2(output, flow)
+        loss.backward(retain_graph=True)
+        optimizer2.step()
+        # patch.data = torch.clamp(patch.data, 0, 1)
+        if first_down_loss is None:
+            first_down_loss = loss.item()
+        last_down_loss = loss.item()
+        if (i) % (num_epochs // 10) == 0:
+            print(f"epoch {i}, loss:{loss.item()}")
+
+
+    img1 = torch.randn(img_shape).to(device)
+    img2 = torch.randn(img_shape).to(device)
+    output_f = flownet(img1, img2)
+    flow_input = torch.cat((output_f, intrinsic), dim=1)
+    output = flowPoseNet(flow_input)
+    # print(f'clean output: {output}')
+    img1[:, :, 200:300, 200:300] = patch
+    img2[:, :, 200:300, 200:300] = patch
+    output_f = flownet(img1, img2)
+    flow_input = torch.cat((output_f, intrinsic), dim=1)
+    output = flowPoseNet(flow_input)
+    # print(f'perturbed output: {output}')
+
+    print(f'up loss diff: {last_up_loss - first_up_loss}')
+    print(f'down loss diff: {last_down_loss - first_down_loss}')
+
+
 def parameters_experiment():
-
-
     gen = PertGenerator()
     print([p.requires_grad for p in gen.parameters()])
     output = gen.sample(torch.device('cpu'))
@@ -978,8 +1277,9 @@ def parameters_experiment():
     torchvision.utils.save_image(output, 'results/sandbox/initial_pert.png')
 
 
-
 def main():
+    optimize_flow_experiment()
+    return
     # factors_experiment()
     # see_flow_experiment()
     # experiment_tartan()
@@ -997,6 +1297,7 @@ def main():
     conv_pretrain()
     load_gen_and_train()
     return
+
     # load_conv_experiment()
     # random_initiation()
 

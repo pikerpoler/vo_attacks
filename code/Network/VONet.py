@@ -40,7 +40,7 @@ class VONet(nn.Module):
     def __init__(self):
         super(VONet, self).__init__()
 
-        self.flowNet     = FlowNet()
+        self.flowNet = FlowNet()
         self.flowPoseNet = FlowPoseNet()
 
     def forward(self, img1, img2, intrinsic):

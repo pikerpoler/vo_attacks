@@ -158,7 +158,8 @@ class PGD(Attack):
         eval_clean_loss_list, traj_clean_loss_mean_list, clean_loss_sum, \
         best_pert, best_loss_list, best_loss_sum, all_loss, all_best_loss = \
             self.compute_clean_baseline(data_loader, y_list, eval_data_loader, eval_y_list, device=device)
-
+        _, _, _, _, _, _, _, _, _, _, _, train_losses, _ = \
+            self.compute_clean_baseline(data_loader, y_list, data_loader, y_list, device=device)
         for rest in tqdm(range(self.n_restarts)):
             print("restarting attack optimization, restart number: " + str(rest))
             opt_start_time = time.time()
@@ -194,7 +195,8 @@ class PGD(Attack):
                 with torch.no_grad():
                     eval_loss_tot, eval_loss_list = self.attack_eval(pert, data_shape, eval_data_loader, eval_y_list,
                                                                      device)
-
+                    _, train_loss_list = self.attack_eval(pert, data_shape, data_loader, y_list, device)
+                    train_losses.append(train_loss_list)
                     if eval_loss_tot > best_loss_sum:
                         best_pert = pert.clone().detach()
                         best_loss_list = eval_loss_list
@@ -212,8 +214,8 @@ class PGD(Attack):
                     print(" current trajectories loss sum:" + str(eval_loss_tot))
                     print(" current trajectories best loss sum:" + str(best_loss_sum))
                     print(" trajectories clean loss sum:" + str(clean_loss_sum))
-
                     pert_dir = 'pertubations/' + self.run_name
+                    print(f' saving perturbation to {pert_dir}')
                     if not os.path.exists(pert_dir):
                         os.makedirs(pert_dir)
                     save_image(pert, pert_dir + '/pert_' + str(k) + '_' + str(eval_loss_tot) + '.png')
@@ -224,5 +226,5 @@ class PGD(Attack):
 
             opt_runtime = time.time() - opt_start_time
             print("optimization restart finished, optimization runtime: " + str(opt_runtime))
-        return best_pert.detach(), eval_clean_loss_list, all_loss, all_best_loss
+        return best_pert.detach(), eval_clean_loss_list, all_loss, all_best_loss, train_losses
 

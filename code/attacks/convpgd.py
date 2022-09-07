@@ -1,4 +1,5 @@
 import os
+from math import log2
 
 import numpy as np
 import torch
@@ -11,6 +12,7 @@ from torch.nn import ConvTranspose2d, Sequential
 from torchvision.utils import save_image
 from tqdm import tqdm
 import cv2
+
 
 
 def normalize_generator(generator):
@@ -79,9 +81,8 @@ class PertGenerator(torch.nn.Module):
     '''
     this code is not clean, nor modular.
     '''
-    def __init__(self, pert_shape):
+    def __init__(self,  kernel_grad=False):
         super(PertGenerator, self).__init__()
-        self.pert_shape = pert_shape
 
         '''
         old architecture version:
@@ -109,7 +110,8 @@ class PertGenerator(torch.nn.Module):
         
         '''
 
-        self.kernel = torch.nn.Parameter(100 * torch.ones(1, 200, 14, 20))
+        self.kernel = torch.nn.Parameter(100. * torch.ones(1, 200, 14, 20), requires_grad=kernel_grad)
+        # self.kernel = 100 * torch.ones(1, 200, 14, 20)
         channels = [200, 150, 100, 50, 25, 3]
         up_layers = []
         for i in range(5):
@@ -124,6 +126,323 @@ class PertGenerator(torch.nn.Module):
     def sample(self, device):
         return torch.clamp(self.cnn(self.kernel.to(device)),0 , 1)
 
+from typing import List, NamedTuple
+from math import log2, sqrt
+from torch import nn, einsum
+import torch.nn.functional as F
+import numpy as np
+from einops import rearrange
+
+
+def exists(val):
+    return val is not None
+
+
+def default(val, d):
+    return val if exists(val) else d
+
+
+class always():
+    def __init__(self, val):
+        self.val = val
+
+    def __call__(self, x, *args, **kwargs):
+        return self.val
+
+
+def is_empty(t):
+    return t.nelement() == 0
+
+
+def masked_mean(t, mask, dim=1):
+    t = t.masked_fill(~mask[:, :, None], 0.)
+    return t.sum(dim=1) / mask.sum(dim=1)[..., None]
+
+
+def prob_mask_like(shape, prob, device):
+    return torch.zeros(shape, device=device).float().uniform_(0, 1) < prob
+
+
+def set_requires_grad(model, value):
+    for param in model.parameters():
+        param.requires_grad = value
+
+
+def eval_decorator(fn):
+    def inner(model, *args, **kwargs):
+        was_training = model.training
+        model.eval()
+        out = fn(model, *args, **kwargs)
+        model.train(was_training)
+        return out
+
+    return inner
+
+
+# sampling helpers
+
+def log(t, eps=1e-20):
+    return torch.log(t + eps)
+
+
+def gumbel_noise(t):
+    noise = torch.zeros_like(t).uniform_(0, 1)
+    return -log(-log(noise))
+
+
+def gumbel_sample(t, temperature=1., dim=-1):
+    return ((t / temperature) + gumbel_noise(t)).argmax(dim=dim)
+
+
+def top_k(logits, thres=0.5):
+    num_logits = logits.shape[-1]
+    k = max(int((1 - thres) * num_logits), 1)
+    val, ind = torch.topk(logits, k)
+    probs = torch.full_like(logits, float('-inf'))
+    probs.scatter_(1, ind, val)
+    return probs
+class ResBlock(nn.Module):
+    def __init__(self, chan):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv2d(chan, chan, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(chan, chan, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(chan, chan, 1)
+        )
+
+    def forward(self, x):
+        return self.net(x) + x
+
+
+class DiscreteVAE(nn.Module):
+    def __init__(
+            self,
+            image_size=512,
+            num_tokens=512,
+            codebook_dim=512,
+            num_layers=3,
+            num_resnet_blocks=0,
+            hidden_dim=64,
+            channels=3,
+            smooth_l1_loss=False,
+            temperature=0.9,
+            straight_through=False,
+            kl_div_loss_weight=0.,
+            normalization=((*((0.5,) * 3), 0), (*((0.5,) * 3), 1))
+    ):
+        super().__init__()
+        assert log2(image_size).is_integer(), 'image size must be a power of 2'
+        assert num_layers >= 1, 'number of layers must be greater than or equal to 1'
+        has_resblocks = num_resnet_blocks > 0
+
+        self.channels = channels
+        self.image_size = image_size
+        self.num_tokens = num_tokens
+        self.num_layers = num_layers
+        self.temperature = temperature
+        self.straight_through = straight_through
+        self.codebook = nn.Embedding(num_tokens, codebook_dim)
+
+        hdim = hidden_dim
+
+        enc_chans = [hidden_dim] * num_layers
+        dec_chans = list(reversed(enc_chans))
+
+        enc_chans = [channels, *enc_chans]
+
+        dec_init_chan = codebook_dim if not has_resblocks else dec_chans[0]
+        dec_chans = [dec_init_chan, *dec_chans]
+
+        enc_chans_io, dec_chans_io = map(lambda t: list(zip(t[:-1], t[1:])), (enc_chans, dec_chans))
+
+        enc_layers = []
+        dec_layers = []
+
+        for (enc_in, enc_out), (dec_in, dec_out) in zip(enc_chans_io, dec_chans_io):
+            enc_layers.append(nn.Sequential(nn.Conv2d(enc_in, enc_out, 4, stride=2, padding=1), nn.ReLU()))
+            dec_layers.append(nn.Sequential(nn.ConvTranspose2d(dec_in, dec_out, 4, stride=2, padding=1), nn.ReLU()))
+
+        for _ in range(num_resnet_blocks):
+            dec_layers.insert(0, ResBlock(dec_chans[1]))
+            enc_layers.append(ResBlock(enc_chans[-1]))
+
+        if num_resnet_blocks > 0:
+            dec_layers.insert(0, nn.Conv2d(codebook_dim, dec_chans[1], 1))
+
+        enc_layers.append(nn.Conv2d(enc_chans[-1], num_tokens, 1))
+        dec_layers.append(nn.Conv2d(dec_chans[-1], channels, 1))
+
+        self.encoder = nn.Sequential(*enc_layers)
+        self.decoder = nn.Sequential(*dec_layers)
+
+        self.loss_fn = F.smooth_l1_loss if smooth_l1_loss else F.mse_loss
+        self.kl_div_loss_weight = kl_div_loss_weight
+
+        # take care of normalization within class
+        self.normalization = tuple(map(lambda t: t[:channels], normalization))
+
+    #     self._register_external_parameters()
+    #
+    # def _register_external_parameters(self):
+    #     """Register external parameters for DeepSpeed partitioning."""
+    #     if (
+    #             not distributed_utils.is_distributed
+    #             or not distributed_utils.using_backend(
+    #                 distributed_utils.DeepSpeedBackend)
+    #     ):
+    #         return
+    #
+    #     deepspeed = distributed_utils.backend.backend_module
+    #     deepspeed.zero.register_external_parameter(self, self.codebook.weight)
+
+    def norm(self, images):
+        if not exists(self.normalization):
+            return images
+
+        means, stds = map(lambda t: torch.as_tensor(t).to(images), self.normalization)
+        means, stds = map(lambda t: rearrange(t, 'c -> () c () ()'), (means, stds))
+        images = images.clone()
+        images.sub_(means).div_(stds)
+        return images
+
+    @torch.no_grad()
+    @eval_decorator
+    def get_codebook_indices(self, images):
+        logits = self(images, return_logits=True)
+        codebook_indices = logits.argmax(dim=1).flatten(1)
+        return codebook_indices
+
+    def decode(
+            self,
+            img_seq
+    ):
+        image_embeds = self.codebook(img_seq)
+        b, n, d = image_embeds.shape
+        h = w = int(sqrt(n))
+
+        image_embeds = rearrange(image_embeds, 'b (h w) d -> b d h w', h=h, w=w)
+        images = self.decoder(image_embeds)
+        return images
+
+    def forward(
+            self,
+            img,
+            return_loss=False,
+            return_recons=False,
+            return_logits=False,
+            temp=None
+    ):
+        device, num_tokens, image_size, kl_div_loss_weight = img.device, self.num_tokens, self.image_size, self.kl_div_loss_weight
+        assert img.shape[-1] == image_size and img.shape[
+            -2] == image_size, f'input must have the correct image size {image_size}'
+
+        img = self.norm(img)
+
+        logits = self.encoder(img)
+
+        if return_logits:
+            return logits  # return logits for getting hard image indices for DALL-E training
+
+        temp = default(temp, self.temperature)
+        soft_one_hot = F.gumbel_softmax(logits, tau=temp, dim=1, hard=self.straight_through)
+        sampled = einsum('b n h w, n d -> b d h w', soft_one_hot, self.codebook.weight)
+        out = self.decoder(sampled)
+
+        if not return_loss:
+            return out
+
+        # reconstruction loss
+
+        recon_loss = self.loss_fn(img, out)
+
+        # kl divergence
+
+        logits = rearrange(logits, 'b n h w -> b (h w) n')
+        log_qy = F.log_softmax(logits, dim=-1)
+        log_uniform = torch.log(torch.tensor([1. / num_tokens], device=device))
+        kl_div = F.kl_div(log_uniform, log_qy, None, None, 'batchmean', log_target=True)
+
+        loss = recon_loss + (kl_div * kl_div_loss_weight)
+
+        if not return_recons:
+            return loss
+
+        return loss, out
+
+
+class ResDecoder(torch.nn.Module):
+    @staticmethod
+    def decoder_from_vae_ceckpoint(checkpoint_path='discrete_vae.pth'):
+        latent_dim = 3
+        vae = DiscreteVAE(
+            image_size=512,
+            num_layers=3,  # number of downsamples - ex. 256 / (2 ** 3) = (32 x 32 feature map)
+            num_tokens=latent_dim,
+            # number of visual tokens. in the paper, they used 8192, but could be smaller for downsized projects
+            codebook_dim=latent_dim,  # codebook dimension
+            hidden_dim=64,  # hidden dimension
+            num_resnet_blocks=1,  # number of resnet blocks
+            temperature=0.9,  # gumbel softmax temperature, the lower this is, the harder the discretization
+            straight_through=False,  # straight-through for gumbel softmax. unclear if it is better one way or the other
+        )
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        print('device1', device)
+        vae.load_state_dict(torch.load(checkpoint_path, map_location=device))
+        dec = vae.decoder
+        enc = vae.encoder
+        #
+        latim = enc(torch.randn(1, 3, 512, 512))
+        seed = torch.rand(1, latent_dim, 56, 80)
+        scale = 1.0
+        randim = dec(latim)
+        print(randim.shape)
+        rand_im = dec(scale * seed)[0]
+        print(rand_im.shape)
+        return dec
+
+    def __init__(self, kernel_grad=False, pretrained=False, latent_dim=10, num_resnet_blocks=1, hidden_dim=64):
+        super(ResDecoder, self,).__init__()
+        if pretrained:
+            self.cnn = self.decoder_from_vae_ceckpoint()
+        else:
+            vae = DiscreteVAE(num_tokens=latent_dim, codebook_dim=latent_dim, hidden_dim=hidden_dim, num_resnet_blocks=num_resnet_blocks)
+            self.cnn = vae.decoder
+
+        self.kernel = torch.nn.Parameter(torch.ones(1, latent_dim, 56, 80), requires_grad=kernel_grad)
+        print(self.cnn(self.kernel).shape)
+
+    def sample(self, device):
+        return torch.clamp(self.cnn.to(device)(self.kernel.to(device)), 0, 1)
+
+class VaeGen1(torch.nn.Module):
+    def __init__(self, kernel_grad=False):
+        super(VaeGen1, self,).__init__()
+        self.vae = DiscreteVAE(image_size=512)
+        self.image = torch.nn.Parameter(torch.rand(1, 3, 448, 640), requires_grad=kernel_grad)
+        self.turns = {True: 3, False: 3}
+        self.direct = True
+        self.current_turn = 0
+
+    def next_turn(self):
+        self.current_turn += 1
+        if self.current_turn > self.turns[self.direct]:
+            self.direct = not self.direct
+            self.current_turn = 0
+
+    def sample(self, device):
+        self.next_turn()
+        self.image.data = torch.clamp(self.image, 0, 1)
+        set_requires_grad(self.image, self.direct)
+        set_requires_grad(self.vae, not self.direct)
+        if self.direct:
+            return self.image.to(device)
+        else:
+            return torch.clamp(self.vae.to(device)(self.image.to(device)), 0, 1)
+
+    def forward(self, x):
+        return self.cnn(x)
 
 def random_initiation():
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -187,6 +506,7 @@ class AdjDecoder(torch.nn.Module):
         return torch.clamp(pert, 0, 1)
 
 
+
 class ConvPGD(Attack):
     def __init__(
             self,
@@ -219,8 +539,10 @@ class ConvPGD(Attack):
         if generator is not None:
             self.generator = generator
         else:
-            self.generator = PertGenerator(data_shape)
-        # self.generator = random_initiation()
+            # self.generator = PertGenerator()  ##
+            # self.generator = random_initiation()
+            # self.generator = VaeGen1()
+            self.generator = ResDecoder()
         self.optimizer = torch.optim.Adam(self.generator.parameters(), lr=alpha)
 
         # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, n_iter, 1e-6)
@@ -297,7 +619,11 @@ class ConvPGD(Attack):
         eval_clean_loss_list, traj_clean_loss_mean_list, clean_loss_sum, \
         best_pert, best_loss_list, best_loss_sum, all_loss, all_best_loss = \
             self.compute_clean_baseline(data_loader, y_list, eval_data_loader, eval_y_list, device=device)
+        _, _, _, _, _, _, _, _, _, _, _, train_losses, _ = \
+            self.compute_clean_baseline(data_loader, y_list, data_loader, y_list, device=device)
 
+        self.generator = self.generator.to(device)
+        print(device)
         for rest in tqdm(range(self.n_restarts)):
             print("restarting attack optimization, restart number: " + str(rest))
             opt_start_time = time.time()
@@ -305,9 +631,18 @@ class ConvPGD(Attack):
             self.generator = self.generator.to(device)
             self.generator.train()
 
+
             for k in tqdm(range(self.n_iter)):
                 print(f" attack optimization epoch: {str(k)} ")
                 iter_start_time = time.time()
+
+                # if k % 10 == 9:
+                #     if self.generator.kernel.requires_grad:
+                #         set_requires_grad(self.generator, True)
+                #         self.generator.kernel.requires_grad = False
+                #     else:
+                #         set_requires_grad(self.generator, False)
+                #         self.generator.kernel.requires_grad = True
 
                 self.gradient_ascent_step(data_shape, data_loader, y_list, clean_flow_list, eps, device=device)
 
@@ -322,7 +657,8 @@ class ConvPGD(Attack):
                     pert = self.project(pert, eps)
                     eval_loss_tot, eval_loss_list = self.attack_eval(pert, data_shape, eval_data_loader, eval_y_list,
                                                                      device)
-
+                    _, train_loss_list = self.attack_eval(pert, data_shape, data_loader, y_list,device)
+                    train_losses.append(train_loss_list)
                     if eval_loss_tot > best_loss_sum:
                         best_pert = pert.clone().detach()
                         best_loss_list = eval_loss_list
@@ -341,6 +677,9 @@ class ConvPGD(Attack):
                     print(" current trajectories best loss sum:" + str(best_loss_sum))
                     print(" trajectories clean loss sum:" + str(clean_loss_sum))
 
+
+
+
                     pert_dir = 'pertubations/' + self.run_name
                     if not os.path.exists(pert_dir):
                         os.makedirs(pert_dir)
@@ -352,5 +691,5 @@ class ConvPGD(Attack):
 
             opt_runtime = time.time() - opt_start_time
             print("optimization restart finished, optimization runtime: " + str(opt_runtime))
-        return best_pert.detach(), eval_clean_loss_list, all_loss, all_best_loss
+        return best_pert.detach(), eval_clean_loss_list, all_loss, all_best_loss, train_losses
 
