@@ -131,7 +131,6 @@ from math import log2, sqrt
 from torch import nn, einsum
 import torch.nn.functional as F
 import numpy as np
-from einops import rearrange
 
 
 def exists(val):
@@ -217,6 +216,9 @@ class ResBlock(nn.Module):
 
 
 class DiscreteVAE(nn.Module):
+    #code taken from
+    #https://github.com/lucidrains/DALLE-pytorch
+
     def __init__(
             self,
             image_size=512,
@@ -298,14 +300,15 @@ class DiscreteVAE(nn.Module):
     #     deepspeed.zero.register_external_parameter(self, self.codebook.weight)
 
     def norm(self, images):
-        if not exists(self.normalization):
-            return images
-
-        means, stds = map(lambda t: torch.as_tensor(t).to(images), self.normalization)
-        means, stds = map(lambda t: rearrange(t, 'c -> () c () ()'), (means, stds))
-        images = images.clone()
-        images.sub_(means).div_(stds)
-        return images
+        raise NotImplementedError()
+        # if not exists(self.normalization):
+        #     return images
+        #
+        # means, stds = map(lambda t: torch.as_tensor(t).to(images), self.normalization)
+        # means, stds = map(lambda t: rearrange(t, 'c -> () c () ()'), (means, stds))
+        # images = images.clone()
+        # images.sub_(means).div_(stds)
+        # return images
 
     @torch.no_grad()
     @eval_decorator
@@ -318,13 +321,14 @@ class DiscreteVAE(nn.Module):
             self,
             img_seq
     ):
-        image_embeds = self.codebook(img_seq)
-        b, n, d = image_embeds.shape
-        h = w = int(sqrt(n))
-
-        image_embeds = rearrange(image_embeds, 'b (h w) d -> b d h w', h=h, w=w)
-        images = self.decoder(image_embeds)
-        return images
+        raise NotImplementedError()
+        # image_embeds = self.codebook(img_seq)
+        # b, n, d = image_embeds.shape
+        # h = w = int(sqrt(n))
+        #
+        # image_embeds = rearrange(image_embeds, 'b (h w) d -> b d h w', h=h, w=w)
+        # images = self.decoder(image_embeds)
+        # return images
 
     def forward(
             self,
@@ -334,73 +338,46 @@ class DiscreteVAE(nn.Module):
             return_logits=False,
             temp=None
     ):
-        device, num_tokens, image_size, kl_div_loss_weight = img.device, self.num_tokens, self.image_size, self.kl_div_loss_weight
-        assert img.shape[-1] == image_size and img.shape[
-            -2] == image_size, f'input must have the correct image size {image_size}'
-
-        img = self.norm(img)
-
-        logits = self.encoder(img)
-
-        if return_logits:
-            return logits  # return logits for getting hard image indices for DALL-E training
-
-        temp = default(temp, self.temperature)
-        soft_one_hot = F.gumbel_softmax(logits, tau=temp, dim=1, hard=self.straight_through)
-        sampled = einsum('b n h w, n d -> b d h w', soft_one_hot, self.codebook.weight)
-        out = self.decoder(sampled)
-
-        if not return_loss:
-            return out
-
-        # reconstruction loss
-
-        recon_loss = self.loss_fn(img, out)
-
-        # kl divergence
-
-        logits = rearrange(logits, 'b n h w -> b (h w) n')
-        log_qy = F.log_softmax(logits, dim=-1)
-        log_uniform = torch.log(torch.tensor([1. / num_tokens], device=device))
-        kl_div = F.kl_div(log_uniform, log_qy, None, None, 'batchmean', log_target=True)
-
-        loss = recon_loss + (kl_div * kl_div_loss_weight)
-
-        if not return_recons:
-            return loss
-
-        return loss, out
+        raise NotImplementedError()
+        # device, num_tokens, image_size, kl_div_loss_weight = img.device, self.num_tokens, self.image_size, self.kl_div_loss_weight
+        # assert img.shape[-1] == image_size and img.shape[
+        #     -2] == image_size, f'input must have the correct image size {image_size}'
+        #
+        # img = self.norm(img)
+        #
+        # logits = self.encoder(img)
+        #
+        # if return_logits:
+        #     return logits  # return logits for getting hard image indices for DALL-E training
+        #
+        # temp = default(temp, self.temperature)
+        # soft_one_hot = F.gumbel_softmax(logits, tau=temp, dim=1, hard=self.straight_through)
+        # sampled = einsum('b n h w, n d -> b d h w', soft_one_hot, self.codebook.weight)
+        # out = self.decoder(sampled)
+        #
+        # if not return_loss:
+        #     return out
+        #
+        # # reconstruction loss
+        #
+        # recon_loss = self.loss_fn(img, out)
+        #
+        # # kl divergence
+        #
+        # logits = rearrange(logits, 'b n h w -> b (h w) n')
+        # log_qy = F.log_softmax(logits, dim=-1)
+        # log_uniform = torch.log(torch.tensor([1. / num_tokens], device=device))
+        # kl_div = F.kl_div(log_uniform, log_qy, None, None, 'batchmean', log_target=True)
+        #
+        # loss = recon_loss + (kl_div * kl_div_loss_weight)
+        #
+        # if not return_recons:
+        #     return loss
+        #
+        # return loss, out
 
 
 class ResDecoder(torch.nn.Module):
-    @staticmethod
-    def decoder_from_vae_ceckpoint(checkpoint_path='discrete_vae.pth'):
-        latent_dim = 3
-        vae = DiscreteVAE(
-            image_size=512,
-            num_layers=3,  # number of downsamples - ex. 256 / (2 ** 3) = (32 x 32 feature map)
-            num_tokens=latent_dim,
-            # number of visual tokens. in the paper, they used 8192, but could be smaller for downsized projects
-            codebook_dim=latent_dim,  # codebook dimension
-            hidden_dim=64,  # hidden dimension
-            num_resnet_blocks=1,  # number of resnet blocks
-            temperature=0.9,  # gumbel softmax temperature, the lower this is, the harder the discretization
-            straight_through=False,  # straight-through for gumbel softmax. unclear if it is better one way or the other
-        )
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        print('device1', device)
-        vae.load_state_dict(torch.load(checkpoint_path, map_location=device))
-        dec = vae.decoder
-        enc = vae.encoder
-        #
-        latim = enc(torch.randn(1, 3, 512, 512))
-        seed = torch.rand(1, latent_dim, 56, 80)
-        scale = 1.0
-        randim = dec(latim)
-        print(randim.shape)
-        rand_im = dec(scale * seed)[0]
-        print(rand_im.shape)
-        return dec
 
     def __init__(self, kernel_grad=False, pretrained=False, latent_dim=10, num_resnet_blocks=1, hidden_dim=64):
         super(ResDecoder, self,).__init__()
