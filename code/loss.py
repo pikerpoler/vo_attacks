@@ -182,7 +182,7 @@ class VOCriterion:
         else:
             self.calc_flow_crit = self.calc_none
 
-        self.calc_target_t_product = True
+        self.calc_target_t_product = False
 
     def apply(self, model_output, scale, motions_gt, target_pose, flow_clean=None):
         # print(f'scale: {scale}')
