@@ -1,7 +1,7 @@
 import argparse
 import torch
 
-from attacks import PGD, Const
+from attacks import PGD, Const, AntiPGD
 import torch.backends.cudnn as cudnn
 import random
 from TartanVO import TartanVO
@@ -236,7 +236,8 @@ def compute_attack_args(args):
         print("loading pre-computed attack from path: " + args.load_attack)
         load_pert_transform = Compose([CropCenter((args.image_height, args.image_width)), ToTensor()])
 
-    attack_dict = {'pgd': PGD, 'const': Const, 'conv': ConvPGD, 'noisepgd': NoisePGD, 'dfs': DFSPGD, 'scheduled': ScheduledPGD}
+    attack_dict = {'pgd': PGD, 'const': Const, 'conv': ConvPGD, 'noisepgd': NoisePGD, 'dfs': DFSPGD, 'scheduled': ScheduledPGD,
+                   'antipgd' : AntiPGD}
     args.attack_name = args.attack
     if args.attack not in attack_dict:
         args.attack = None
