@@ -143,7 +143,8 @@ class PGD(Attack):
         return grad.to(device)
 
     def perturb(self, data_loader, y_list, eps,
-                                   targeted=False, device=None, eval_data_loader=None, eval_y_list=None):
+                                   targeted=False, device=None, eval_data_loader=None, eval_y_list=None,
+                    oos_data_loader=None, oos_y_list=None, real_data_loader=None, real_y_list=None):
 
         a_abs = np.abs(eps / self.n_iter) if self.alpha is None else np.abs(self.alpha)
         multiplier = -1 if targeted else 1
@@ -158,8 +159,11 @@ class PGD(Attack):
         eval_clean_loss_list, traj_clean_loss_mean_list, clean_loss_sum, \
         best_pert, best_loss_list, best_loss_sum, all_loss, all_best_loss = \
             self.compute_clean_baseline(data_loader, y_list, eval_data_loader, eval_y_list, device=device)
-        _, _, _, _, _, _, _, _, _, _, _, train_losses, _ = \
-            self.compute_clean_baseline(data_loader, y_list, data_loader, y_list, device=device)
+        _, _, _, _, _, _, _, _, _, _, _, oos_losses, _ = \
+            self.compute_clean_baseline(data_loader, y_list, oos_data_loader, oos_y_list, device=device)
+        _, _, _, _, _, _, _, _, _, _, _, real_losses, _ = \
+            self.compute_clean_baseline(data_loader, y_list, real_data_loader, real_y_list, device=device)
+
         for rest in tqdm(range(self.n_restarts)):
             print("restarting attack optimization, restart number: " + str(rest))
             opt_start_time = time.time()
@@ -195,8 +199,10 @@ class PGD(Attack):
                 with torch.no_grad():
                     eval_loss_tot, eval_loss_list = self.attack_eval(pert, data_shape, eval_data_loader, eval_y_list,
                                                                      device)
-                    _, train_loss_list = self.attack_eval(pert, data_shape, data_loader, y_list, device)
-                    train_losses.append(train_loss_list)
+                    _, oos_loss = self.attack_eval(pert, data_shape, oos_data_loader, oos_y_list, device)
+                    oos_losses.append(oos_loss)
+                    _, real_loss = self.attack_eval(pert, data_shape, real_data_loader, real_y_list, device)
+                    real_losses.append(real_loss)
                     if eval_loss_tot > best_loss_sum:
                         best_pert = pert.clone().detach()
                         best_loss_list = eval_loss_list
@@ -226,5 +232,5 @@ class PGD(Attack):
 
             opt_runtime = time.time() - opt_start_time
             print("optimization restart finished, optimization runtime: " + str(opt_runtime))
-        return best_pert.detach(), eval_clean_loss_list, all_loss, all_best_loss, train_losses
+        return best_pert.detach(), eval_clean_loss_list, all_loss, all_best_loss, oos_losses, real_losses
 

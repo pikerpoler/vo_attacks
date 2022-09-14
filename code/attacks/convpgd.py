@@ -379,7 +379,7 @@ class DiscreteVAE(nn.Module):
 
 class ResDecoder(torch.nn.Module):
 
-    def __init__(self, kernel_grad=False, pretrained=False, latent_dim=10, num_resnet_blocks=1, hidden_dim=64):
+    def __init__(self, kernel_grad=True, pretrained=False, latent_dim=10, num_resnet_blocks=1, hidden_dim=64):
         super(ResDecoder, self,).__init__()
         if pretrained:
             self.cnn = self.decoder_from_vae_ceckpoint()
@@ -522,8 +522,8 @@ class ConvPGD(Attack):
             self.generator = ResDecoder()
         self.optimizer = torch.optim.Adam(self.generator.parameters(), lr=alpha)
 
-        # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, n_iter, 1e-6)
-        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 5, gamma=2)
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, n_iter, 0)
+        # self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 5, gamma=2)
         # self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lambda epoch: alpha/np.log(epoch + 2))
 
     def gradient_ascent_step(self, data_shape, data_loader, y_list, clean_flow_list,eps ,device=None):
@@ -581,7 +581,8 @@ class ConvPGD(Attack):
 
 
     def perturb(self, data_loader, y_list, eps,
-                                   targeted=False, device=None, eval_data_loader=None, eval_y_list=None):
+                                   targeted=False, device=None, eval_data_loader=None, eval_y_list=None,
+                    oos_data_loader=None, oos_y_list=None, real_data_loader=None, real_y_list=None):
 
         a_abs = np.abs(eps / self.n_iter) if self.alpha is None else np.abs(self.alpha)
         multiplier = -1 if targeted else 1
@@ -596,8 +597,10 @@ class ConvPGD(Attack):
         eval_clean_loss_list, traj_clean_loss_mean_list, clean_loss_sum, \
         best_pert, best_loss_list, best_loss_sum, all_loss, all_best_loss = \
             self.compute_clean_baseline(data_loader, y_list, eval_data_loader, eval_y_list, device=device)
-        _, _, _, _, _, _, _, _, _, _, _, train_losses, _ = \
-            self.compute_clean_baseline(data_loader, y_list, data_loader, y_list, device=device)
+        _, _, _, _, _, _, _, _, _, _, _, oos_losses, _ = \
+            self.compute_clean_baseline(data_loader, y_list, oos_data_loader, oos_y_list, device=device)
+        _, _, _, _, _, _, _, _, _, _, _, real_losses, _ = \
+            self.compute_clean_baseline(data_loader, y_list, real_data_loader, real_y_list, device=device)
 
         self.generator = self.generator.to(device)
         print(device)
@@ -634,8 +637,10 @@ class ConvPGD(Attack):
                     pert = self.project(pert, eps)
                     eval_loss_tot, eval_loss_list = self.attack_eval(pert, data_shape, eval_data_loader, eval_y_list,
                                                                      device)
-                    _, train_loss_list = self.attack_eval(pert, data_shape, data_loader, y_list,device)
-                    train_losses.append(train_loss_list)
+                    _, oos_loss = self.attack_eval(pert, data_shape, oos_data_loader, oos_y_list, device)
+                    oos_losses.append(oos_loss)
+                    _, real_loss = self.attack_eval(pert, data_shape, real_data_loader, real_y_list, device)
+                    real_losses.append(real_loss)
                     if eval_loss_tot > best_loss_sum:
                         best_pert = pert.clone().detach()
                         best_loss_list = eval_loss_list
@@ -651,6 +656,7 @@ class ConvPGD(Attack):
                     print(" current trajectories best loss mean list:" + str(traj_best_loss_mean_list))
                     print(" trajectories clean loss mean list:" + str(traj_clean_loss_mean_list))
                     print(" current trajectories loss sum:" + str(eval_loss_tot))
+                    # print(" current trajectories train loss sum:" + str(train_loss_list))
                     print(" current trajectories best loss sum:" + str(best_loss_sum))
                     print(" trajectories clean loss sum:" + str(clean_loss_sum))
 
@@ -658,6 +664,7 @@ class ConvPGD(Attack):
 
 
                     pert_dir = 'pertubations/' + self.run_name
+                    print(f' saving perturbation to {pert_dir}')
                     if not os.path.exists(pert_dir):
                         os.makedirs(pert_dir)
                     save_image(pert, pert_dir + '/pert_' + str(k) + '_' + str(eval_loss_tot) + '.png')
@@ -668,5 +675,5 @@ class ConvPGD(Attack):
 
             opt_runtime = time.time() - opt_start_time
             print("optimization restart finished, optimization runtime: " + str(opt_runtime))
-        return best_pert.detach(), eval_clean_loss_list, all_loss, all_best_loss, train_losses
+        return best_pert.detach(), eval_clean_loss_list, all_loss, all_best_loss, oos_losses, real_losses
 

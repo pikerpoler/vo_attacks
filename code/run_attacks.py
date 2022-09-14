@@ -526,6 +526,18 @@ def run_attacks_train(args):
     temp_args.testDataloader = None
     temp_args.valDataloader = None
 
+    temp_args = copy.deepcopy(args)
+    temp_args.testDataloader = temp_args.oosDataloader
+    _, _, _, _, oos_y_list, _, _ = test_clean_multi_inputs(temp_args)
+    temp_args.testDataloader = None
+    temp_args.valDataloader = None
+
+    temp_args = copy.deepcopy(args)
+    temp_args.testDataloader = temp_args.realDataloader
+    _, _, _, _, real_y_list, _, _ = test_clean_multi_inputs(temp_args)
+    temp_args.testDataloader = None
+    temp_args.valDataloader = None
+
     dataset_idx_list, dataset_name_list, traj_name_list, traj_indices, \
     motions_gt_list, traj_clean_criterions_list, traj_clean_motions = \
         test_clean_multi_inputs(args)
@@ -537,9 +549,11 @@ def run_attacks_train(args):
     traj_clean_rms_list, traj_clean_mean_partial_rms_list, \
     traj_clean_target_rms_list, traj_clean_target_mean_partial_rms_list = tuple(traj_clean_criterions_list)
 
-
-    best_pert, clean_loss_list, all_loss_list, all_best_loss_list, train_loss_list = \
-        attack.perturb(args.testDataloader, motions_target_list, eps=args.eps, device=args.device, eval_data_loader=args.valDataloader, eval_y_list=eval_y_list)
+    best_pert, clean_loss_list, all_loss_list, all_best_loss_list, oos_loss_list, real_loss_list = \
+        attack.perturb(args.testDataloader, motions_target_list, eps=args.eps, device=args.device,
+                       eval_data_loader=args.valDataloader, eval_y_list=eval_y_list,
+                       oos_data_loader=args.oosDataloader, oos_y_list=oos_y_list,
+                       real_data_loader=args.realDataloader, real_y_list=real_y_list)
 
 
     torch.save(all_loss_list, os.path.join(args.output_dir, 'all_loss_list.pt'))
@@ -552,16 +566,21 @@ def run_attacks_train(args):
     listname += '.pt'
     listname = listname.split('opt_whole_trajectory')[-1]  # cutting down listname length this way is not elegant, but it works for now. alternatively you can save only run name, but this way custom filtration might be added in the future
     eval_list_path = os.path.join("results/loss_lists/eval", listname)
-    train_list_path = os.path.join("results/loss_lists/train", listname)
+    oos_list_path = os.path.join("results/loss_lists/oos", listname)
+    real_list_path = os.path.join("results/loss_lists/real", listname)
     if not isinstance(attack, Const):
         print(f'saving all_loss_list to {eval_list_path}')
         if not os.path.exists(os.path.dirname(eval_list_path)):
             os.makedirs(os.path.dirname(eval_list_path))
         torch.save(all_loss_list, eval_list_path)
-        print(f'saving train_loss_list to {train_list_path}')
-        if not os.path.exists(os.path.dirname(train_list_path)):
-            os.makedirs(os.path.dirname(train_list_path))
-        torch.save(train_loss_list, train_list_path)
+        print(f'saving oos_loss_list to {oos_list_path}')
+        if not os.path.exists(os.path.dirname(oos_list_path)):
+            os.makedirs(os.path.dirname(oos_list_path))
+        torch.save(oos_loss_list, oos_list_path)
+        print(f'saving real_loss_list to {real_list_path}')
+        if not os.path.exists(os.path.dirname(real_list_path)):
+            os.makedirs(os.path.dirname(real_list_path))
+        torch.save(real_loss_list, real_list_path)
 
 
     if args.save_best_pert:

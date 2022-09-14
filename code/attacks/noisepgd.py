@@ -27,7 +27,7 @@ class NoisePGD(PGD):
             init_pert_transform=None,
             run_name='',
             noise=0.01):
-        super(PGD, self).__init__(model=model, criterion=criterion, test_criterion=test_criterion, data_shape=data_shape, norm=norm, n_iter=n_iter, n_restarts=n_restarts, alpha=alpha, rand_init=rand_init, sample_window_size=sample_window_size, sample_window_stride=sample_window_stride, pert_padding=pert_padding, init_pert_path=init_pert_path, init_pert_transform=init_pert_transform, run_name=run_name)
+        super(NoisePGD, self).__init__(model=model, criterion=criterion, test_criterion=test_criterion, data_shape=data_shape, norm=norm, n_iter=n_iter, n_restarts=n_restarts, alpha=alpha, rand_init=rand_init, sample_window_size=sample_window_size, sample_window_stride=sample_window_stride, pert_padding=pert_padding, init_pert_path=init_pert_path, init_pert_transform=init_pert_transform, run_name=run_name)
         self.noise = noise
     def gradient_ascent_step(self, pert, data_shape, data_loader, y_list, clean_flow_list,
                              multiplier, a_abs, eps, device=None):
