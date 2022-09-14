@@ -3,6 +3,7 @@ import os
 import numpy as np
 import torch
 from attacks.attack import Attack
+from attacks.pgd import PGD
 import time
 
 from torchvision.utils import save_image
@@ -10,7 +11,7 @@ from tqdm import tqdm
 import cv2
 
 
-class AntiPGD(Attack):
+class AntiPGD(PGD):
     def __init__(
             self,
             model,
@@ -197,91 +198,3 @@ class AntiPGD(Attack):
 
             self.prev_noise = noise
         return pert
-
-
-    def perturb(self, data_loader, y_list, eps,
-                                   targeted=False, device=None, eval_data_loader=None, eval_y_list=None):
-
-        a_abs = np.abs(eps / self.n_iter) if self.alpha is None else np.abs(self.alpha)
-        multiplier = -1 if targeted else 1
-        print("computing PGD attack with parameters:")
-        print("attack random restarts: " + str(self.n_restarts))
-        print("attack epochs: " + str(self.n_iter))
-        print("attack norm: " + str(self.norm))
-        print("attack epsilon norm limitation: " + str(eps))
-        print("attack step size: " + str(a_abs))
-
-        data_shape, dtype, eval_data_loader, eval_y_list, clean_flow_list, \
-        eval_clean_loss_list, traj_clean_loss_mean_list, clean_loss_sum, \
-        best_pert, best_loss_list, best_loss_sum, all_loss, all_best_loss = \
-            self.compute_clean_baseline(data_loader, y_list, eval_data_loader, eval_y_list, device=device)
-        _, _, _, _, _, _, _, _, _, _, _, train_losses, _ = \
-            self.compute_clean_baseline(data_loader, y_list, data_loader, y_list, device=device)
-        for rest in tqdm(range(self.n_restarts)):
-            print("restarting attack optimization, restart number: " + str(rest))
-            opt_start_time = time.time()
-
-            pert = torch.zeros_like(best_pert)
-
-            if self.init_pert is not None:
-                print(" perturbation initialized from provided image")
-                pert = self.init_pert.to(best_pert)
-            elif self.rand_init:
-                print(" perturbation initialized randomly")
-                pert = self.random_initialization(pert, eps)
-            else:
-                print(" perturbation initialized to zero")
-
-            pert = self.project(pert, eps)
-
-            for k in tqdm(range(self.n_iter)):
-                print(f" attack optimization epoch: {str(k)}    \n")
-                iter_start_time = time.time()
-
-                pert = self.gradient_ascent_step(pert, data_shape, data_loader, y_list, clean_flow_list,
-                                        multiplier, a_abs, eps, device=device)
-
-                step_runtime = time.time() - iter_start_time
-                print(f" optimization epoch finished, epoch runtime: {str(step_runtime)}    \n")
-
-
-
-                print(" evaluating perturbation")
-                eval_start_time = time.time()
-
-                with torch.no_grad():
-                    eval_loss_tot, eval_loss_list = self.attack_eval(pert, data_shape, eval_data_loader, eval_y_list,
-                                                                     device)
-                    _, train_loss_list = self.attack_eval(pert, data_shape, data_loader, y_list, device)
-                    train_losses.append(train_loss_list)
-                    if eval_loss_tot > best_loss_sum:
-                        best_pert = pert.clone().detach()
-                        best_loss_list = eval_loss_list
-                        best_loss_sum = eval_loss_tot
-                    all_loss.append(eval_loss_list)
-                    all_best_loss.append(best_loss_list)
-                    traj_loss_mean_list = np.mean(eval_loss_list, axis=0)
-                    traj_best_loss_mean_list = np.mean(best_loss_list, axis=0)
-
-                    eval_runtime = time.time() - eval_start_time
-                    print(" evaluation finished, evaluation runtime: " + str(eval_runtime))
-                    print(" current trajectories loss mean list:" + str(traj_loss_mean_list))
-                    print(" current trajectories best loss mean list:" + str(traj_best_loss_mean_list))
-                    print(" trajectories clean loss mean list:" + str(traj_clean_loss_mean_list))
-                    print(" current trajectories loss sum:" + str(eval_loss_tot))
-                    print(" current trajectories best loss sum:" + str(best_loss_sum))
-                    print(" trajectories clean loss sum:" + str(clean_loss_sum))
-                    pert_dir = 'pertubations/' + self.run_name
-                    print(f' saving perturbation to {pert_dir}')
-                    if not os.path.exists(pert_dir):
-                        os.makedirs(pert_dir)
-                    save_image(pert, pert_dir + '/pert_' + str(k) + '_' + str(eval_loss_tot) + '.png')
-
-                    del eval_loss_tot
-                    del eval_loss_list
-                    torch.cuda.empty_cache()
-
-            opt_runtime = time.time() - opt_start_time
-            print("optimization restart finished, optimization runtime: " + str(opt_runtime))
-        return best_pert.detach(), eval_clean_loss_list, all_loss, all_best_loss, train_losses
-
