@@ -50,6 +50,7 @@ class AntiPGD(PGD):
                 self.init_pert = init_pert_transform({'img': self.init_pert})['img'].unsqueeze(0)
 
         self.prev_noise = None
+        self.noise_var = 0.005
 
     def calc_sample_grad_single(self, pert, img1_I0, img2_I0, intrinsic_I0, img1_delta, img2_delta,
                          scale, y, clean_flow, target_pose, perspective1, perspective2, mask1, mask2, device=None):
@@ -193,7 +194,7 @@ class AntiPGD(PGD):
             noise = torch.rand(grad.shape, device=grad.device)
             if not self.prev_noise:
                 self.prev_noise = torch.rand(grad.shape, device=grad.device)
-            pert += multiplier * a_abs * grad + (noise - self.prev_noise)
+            pert += multiplier * a_abs * grad + (noise - self.prev_noise) * self.noise_var
             pert = self.project(pert, eps)
 
             self.prev_noise = noise
