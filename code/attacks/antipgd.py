@@ -2,6 +2,8 @@ import os
 
 import numpy as np
 import torch
+
+from Datasets.tartanTrajFlowDataset import extract_traj_data
 from attacks.attack import Attack
 from attacks.pgd import PGD
 import time
@@ -28,14 +30,15 @@ class AntiPGD(PGD):
             pert_padding=(0, 0),
             init_pert_path=None,
             init_pert_transform=None,
-            run_name=''
+            run_name='',
+            noise=0.1,
     ):
         super(PGD, self).__init__(model, criterion, test_criterion, norm, data_shape,
                                   sample_window_size, sample_window_stride,
                                   pert_padding, run_name)
 
         self.alpha = alpha
-
+        self.noise = noise
         self.n_restarts = n_restarts
         self.n_iter = n_iter
 
@@ -188,11 +191,15 @@ class AntiPGD(PGD):
 
         with torch.no_grad():
 
+            sigma = self.noise
 
             grad = self.normalize_grad(grad_tot)
-            noise = torch.rand(grad.shape, device=grad.device)
-            if not self.prev_noise:
-                self.prev_noise = torch.rand(grad.shape, device=grad.device)
+            noise = sigma * torch.rand(grad.shape, device=grad.device)
+            if self.prev_noise is None:
+                self.prev_noise = sigma * torch.rand(grad.shape, device=grad.device)
+            print(f'noise norm: {torch.norm(noise - self.prev_noise)}')
+            print(f'grad norm: {torch.norm(grad)}')
+            print(f'pert norm: {torch.norm(pert)}')
             pert += multiplier * a_abs * grad + (noise - self.prev_noise)
             pert = self.project(pert, eps)
 

@@ -15,17 +15,19 @@ import cv2
 
 
 
-def normalize_generator(generator):
+def normalize_generator(generator, device):
     def myloss(tensor_image):
-        zeros = torch.zeros(tensor_image.shape)
-        upper_error = torch.nn.L1Loss()(torch.nn.ReLU()(tensor_image - 0.9), zeros)
-        lower_error = torch.nn.L1Loss()(torch.nn.ReLU()(0.1 + (-1) * tensor_image), zeros)
+        zeros = torch.zeros(tensor_image.shape).to(device)
+        loss_fn = torch.nn.L1Loss().to(device)
+        relu = torch.nn.ReLU().to(device)
+        upper_error = loss_fn(relu(tensor_image - 0.9), zeros)
+        lower_error = loss_fn(relu(0.1 + (-1) * tensor_image), zeros)
         print(lower_error.item(), upper_error.item())
         return lower_error + upper_error
 
     optimizer = torch.optim.SGD(generator.parameters(), lr=0.01, momentum=0.9)
     for i in range(30):
-        output = generator.sample()
+        output = generator.sample(device)
         # output = generator(torch.randn(generator.seed.shape))
         loss = myloss(output)
         loss.backward()
@@ -200,6 +202,7 @@ def top_k(logits, thres=0.5):
     probs = torch.full_like(logits, float('-inf'))
     probs.scatter_(1, ind, val)
     return probs
+
 class ResBlock(nn.Module):
     def __init__(self, chan):
         super().__init__()
@@ -381,17 +384,28 @@ class ResDecoder(torch.nn.Module):
 
     def __init__(self, kernel_grad=True, pretrained=False, latent_dim=10, num_resnet_blocks=1, hidden_dim=64):
         super(ResDecoder, self,).__init__()
-        if pretrained:
-            self.cnn = self.decoder_from_vae_ceckpoint()
-        else:
-            vae = DiscreteVAE(num_tokens=latent_dim, codebook_dim=latent_dim, hidden_dim=hidden_dim, num_resnet_blocks=num_resnet_blocks)
-            self.cnn = vae.decoder
+        vae = DiscreteVAE(num_tokens=latent_dim, codebook_dim=latent_dim, hidden_dim=hidden_dim, num_resnet_blocks=num_resnet_blocks)
+        self.cnn = vae.decoder
 
-        self.kernel = torch.nn.Parameter(torch.ones(1, latent_dim, 56, 80), requires_grad=kernel_grad)
+        self.kernel = torch.nn.Parameter(torch.randn(1, latent_dim, 56, 80), requires_grad=kernel_grad)
         print(self.cnn(self.kernel).shape)
 
     def sample(self, device):
         return torch.clamp(self.cnn.to(device)(self.kernel.to(device)), 0, 1)
+
+
+class LinearGenerator(nn.Module):
+    def __init__(self, output_shape=(3, 448, 640)):
+        super(LinearGenerator, self).__init__()
+        self.kernel = torch.ones(1,1,1,1)
+        C, H, W = output_shape
+        self.cnn = nn.ConvTranspose2d(in_channels=1, out_channels=C, kernel_size=(H,W), stride=1, padding=0, bias=False)
+        self.cnn.weight.data.uniform_(0., 1.0)
+
+    def sample(self, device):
+        return torch.clamp(self.cnn.to(device)(self.kernel.to(device)), 0, 1)
+
+
 
 class VaeGen1(torch.nn.Module):
     def __init__(self, kernel_grad=False):
@@ -502,7 +516,7 @@ class ConvPGD(Attack):
             init_pert_path=None,
             init_pert_transform=None,
             run_name='',
-            generator=None,
+            generator='ResDecoder',
 
     ):
         super(ConvPGD, self).__init__(model, criterion, test_criterion, norm, data_shape,
@@ -513,14 +527,11 @@ class ConvPGD(Attack):
 
         self.n_restarts = n_restarts
         self.n_iter = n_iter
-        if generator is not None:
-            self.generator = generator
-        else:
-            # self.generator = PertGenerator()  ##
-            # self.generator = random_initiation()
-            # self.generator = VaeGen1()
-            self.generator = ResDecoder()
-        self.optimizer = torch.optim.Adam(self.generator.parameters(), lr=alpha)
+        generator_dict = {'ResDecoder': ResDecoder, 'linear': LinearGenerator, 'VaeGen1': VaeGen1, 'AdjDecoder': AdjDecoder }
+        self.generator = generator_dict[generator]()
+        # self.optimizer = torch.optim.Adam(self.generator.parameters(), lr=alpha)
+        self. optimizer = torch.optim.SGD(self.generator.parameters(), lr=alpha, momentum=0.9)
+
 
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, n_iter, 0)
         # self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 5, gamma=2)
@@ -554,7 +565,6 @@ class ConvPGD(Attack):
                                   clean_flow_list[data_idx].to(device))
             loss_sum = -loss.sum(dim=0)
             loss_sum.backward()
-            # self.generator = normalize_generator(self.generator)
 
             del img1_I0
             del img2_I0
@@ -576,7 +586,7 @@ class ConvPGD(Attack):
             torch.cuda.empty_cache()
 
         self.optimizer.step()
-        # self.scheduler.step()
+        self.scheduler.step()
 
 
 
@@ -597,11 +607,16 @@ class ConvPGD(Attack):
         eval_clean_loss_list, traj_clean_loss_mean_list, clean_loss_sum, \
         best_pert, best_loss_list, best_loss_sum, all_loss, all_best_loss = \
             self.compute_clean_baseline(data_loader, y_list, eval_data_loader, eval_y_list, device=device)
-        _, _, _, _, _, _, _, _, _, _, _, oos_losses, _ = \
-            self.compute_clean_baseline(data_loader, y_list, oos_data_loader, oos_y_list, device=device)
-        _, _, _, _, _, _, _, _, _, _, _, real_losses, _ = \
-            self.compute_clean_baseline(data_loader, y_list, real_data_loader, real_y_list, device=device)
-
+        if oos_data_loader is not None:
+            _, _, _, _, _, _, _, _, _, _, _, oos_losses, _ = \
+                self.compute_clean_baseline(data_loader, y_list, oos_data_loader, oos_y_list, device=device)
+        else:
+            oos_losses = None
+        if real_data_loader is not None:
+            _, _, _, _, _, _, _, _, _, _, _, real_losses, _ = \
+                self.compute_clean_baseline(data_loader, y_list, real_data_loader, real_y_list, device=device)
+        else:
+            real_losses = None
         self.generator = self.generator.to(device)
         print(device)
         for rest in tqdm(range(self.n_restarts)):
@@ -637,10 +652,17 @@ class ConvPGD(Attack):
                     pert = self.project(pert, eps)
                     eval_loss_tot, eval_loss_list = self.attack_eval(pert, data_shape, eval_data_loader, eval_y_list,
                                                                      device)
-                    _, oos_loss = self.attack_eval(pert, data_shape, oos_data_loader, oos_y_list, device)
-                    oos_losses.append(oos_loss)
-                    _, real_loss = self.attack_eval(pert, data_shape, real_data_loader, real_y_list, device)
-                    real_losses.append(real_loss)
+                    if oos_data_loader is not None:
+                        oos_tot, oos_loss = self.attack_eval(pert, data_shape, oos_data_loader, oos_y_list, device)
+                        oos_losses.append(oos_loss)
+                    else:
+                        oos_tot = 0
+                    if real_data_loader is not None:
+                        _, real_loss = self.attack_eval(pert, data_shape, real_data_loader, real_y_list, device)
+                        real_losses.append(real_loss)
+                    else:
+                        real_tot = 0
+
                     if eval_loss_tot > best_loss_sum:
                         best_pert = pert.clone().detach()
                         best_loss_list = eval_loss_list
@@ -656,7 +678,7 @@ class ConvPGD(Attack):
                     print(" current trajectories best loss mean list:" + str(traj_best_loss_mean_list))
                     print(" trajectories clean loss mean list:" + str(traj_clean_loss_mean_list))
                     print(" current trajectories loss sum:" + str(eval_loss_tot))
-                    # print(" current trajectories train loss sum:" + str(train_loss_list))
+                    print(" current trajectories oos loss sum:" + str(oos_tot))
                     print(" current trajectories best loss sum:" + str(best_loss_sum))
                     print(" trajectories clean loss sum:" + str(clean_loss_sum))
 
@@ -675,5 +697,7 @@ class ConvPGD(Attack):
 
             opt_runtime = time.time() - opt_start_time
             print("optimization restart finished, optimization runtime: " + str(opt_runtime))
+        if oos_losses is None and real_losses is None:
+            return best_pert.detach(), eval_clean_loss_list, all_loss, all_best_loss
         return best_pert.detach(), eval_clean_loss_list, all_loss, all_best_loss, oos_losses, real_losses
 

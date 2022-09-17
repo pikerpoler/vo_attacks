@@ -513,6 +513,7 @@ def report_adv_deviation(dataset_idx_list, dataset_name_list, traj_name_list, tr
            frames_ratio_crit_mean, frames_ratio_crit_std, \
            frames_delta_ratio_crit_mean, frames_delta_ratio_crit_std
 
+
 def run_attacks_train(args):
     print("Training and testing an adversarial perturbation on the whole dataset")
     print("A single single universal will be produced and then tested on the dataset")
@@ -523,6 +524,8 @@ def run_attacks_train(args):
     temp_args = copy.deepcopy(args)
     temp_args.testDataloader = temp_args.valDataloader
     _, _, _, _, eval_y_list, _, _ = test_clean_multi_inputs(temp_args)
+
+
     temp_args.testDataloader = None
     temp_args.valDataloader = None
 
@@ -565,7 +568,7 @@ def run_attacks_train(args):
         listname += '_' + component
     listname += '.pt'
     listname = listname.split('opt_whole_trajectory')[-1]  # cutting down listname length this way is not elegant, but it works for now. alternatively you can save only run name, but this way custom filtration might be added in the future
-    eval_list_path = os.path.join("results/loss_lists/eval", listname)
+    eval_list_path = os.path.join("results/loss_lists/ood", listname)
     oos_list_path = os.path.join("results/loss_lists/oos", listname)
     real_list_path = os.path.join("results/loss_lists/real", listname)
     if not isinstance(attack, Const):

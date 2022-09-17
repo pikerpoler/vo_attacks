@@ -1,0 +1,82 @@
+
+experiment 0 - pgd simulation:
+
+nohup srun --gres=gpu:1 python run_attacks.py --attack conv --generator linear  --run_name  'exp0(pgd-simulation) lr:0.05  t:mean-partial-rms' --alpha 0.05 --attack_t_crit mean_partial_rms --attack_k 100 &
+
+nohup srun --gres=gpu:1 python run_attacks.py --attack conv --generator linear  --run_name  'exp0(pgd-simulation) lr:0.05  t:partial-rms' --alpha 0.05 --attack_t_crit partial_rms --attack_k 100 &
+
+nohup srun --gres=gpu:1 python run_attacks.py --attack conv --generator linear  --run_name  'exp0(pgd-simulation) lr:0.05  t:rms' --alpha 0.05 --attack_t_crit rms --attack_k 100 &
+
+
+nohup srun --gres=gpu:1 python run_attacks.py --attack conv --generator linear  --run_name  'exp0(pgd-simulation) scheduled lr:0.05  t:mean-partial-rms' --alpha 0.05 --attack_t_crit mean_partial_rms --attack_k 100 &
+
+nohup srun --gres=gpu:1   python run_attacks.py --attack conv --generator linear  --run_name  'exp0(pgd-simulation) scheduled lr:0.05  t:partial-rms' --alpha 0.05 --attack_t_crit partial_rms --attack_k 100 &
+
+nohup srun --gres=gpu:1  python run_attacks.py --attack conv --generator linear  --run_name  'exp0(pgd-simulation) scheduled lr:0.05  t:rms' --alpha 0.05 --attack_t_crit rms --attack_k 100 &
+
+experiment 1:
+
+nohup srun --gres=gpu:1 python run_attacks.py --attack conv --run_name 'exp1 conv mean-partial-rms' --alpha 0.0005 --attack_t_crit mean_partial_rms --attack_k 150 &
+nohup srun --gres=gpu:1 python run_attacks.py --attack conv --run_name 'exp1 conv partial-rms' --alpha 0.0005 --attack_t_crit partial_rms --attack_k 150 &
+nohup srun --gres=gpu:1 python run_attacks.py --attack conv --run_name 'exp1 conv rms' --alpha 0.0005 --attack_t_crit rms --attack_k 150 &
+
+nohup srun --gres=gpu:1 python run_attacks.py --attack pgd --run_name 'exp1 pgd mean-partial-rms' --attack_t_crit mean_partial_rms --attack_k 150 &
+nohup srun --gres=gpu:1 python run_attacks.py --attack pgd --run_name 'exp1 pgd partial-rms' --attack_t_crit partial_rms --attack_k 150 &
+nohup srun --gres=gpu:1 python run_attacks.py --attack pgd --run_name 'exp1 pgd rms'  --attack_t_crit rms --attack_k 150 &
+
+experiment 2:
+for this experiment to work, line 50 in utils.py needs to be changed from baseline = True to baseline = False
+
+nohup srun --gres=gpu:1 python run_attacks.py --attack conv --run_name 'exp2 conv mean-partial-rms' --alpha 0.0005 --attack_t_crit mean_partial_rms --attack_k 150 &
+nohup srun --gres=gpu:1 python run_attacks.py --attack conv --run_name 'exp2 conv partial-rms' --alpha 0.0005 --attack_t_crit partial_rms --attack_k 150 &
+nohup srun --gres=gpu:1 python run_attacks.py --attack conv --run_name 'exp2 conv rms' --alpha 0.0005 --attack_t_crit rms --attack_k 150 &
+
+nohup srun --gres=gpu:1 python run_attacks.py --attack pgd --run_name 'exp2 pgd mean-partial-rms' --attack_t_crit mean_partial_rms --attack_k 150 &
+nohup srun --gres=gpu:1 python run_attacks.py --attack pgd --run_name 'exp2 pgd partial-rms' --attack_t_crit partial_rms --attack_k 150 &
+nohup srun --gres=gpu:1 python run_attacks.py --attack pgd --run_name 'exp2 pgd rms'  --attack_t_crit rms --attack_k 150 &
+
+
+experiment 3:
+
+
+nohup srun --gres=gpu:1  python  run_attacks.py --attack conv --run_name  'exp3 lr:0.005  t:partial-rms' --alpha 0.005 --attack_t_crit partial_rms --attack_k 100 &
+
+nohup srun --gres=gpu:1  python run_attacks.py --attack conv --run_name  'exp3 lr:0.001  t:partial-rms' --alpha 0.001 --attack_t_crit partial_rms --attack_k 100 &
+
+nohup srun --gres=gpu:1   python run_attacks.py --attack conv --run_name  'exp3 lr:0.0005  t:partial-rms' --alpha 0.0005 --attack_t_crit partial_rms --attack_k 100 &
+
+nohup srun --gres=gpu:1  python run_attacks.py --attack conv --run_name  'exp3 lr:0.0001  t:partial-rms' --alpha 0.0001 --attack_t_crit partial_rms --attack_k 100 &
+
+
+experiment 4:
+
+nohup srun --gres=gpu:1   python run_attacks.py --attack conv --run_name  'exp4 lr:0.0005  t:partial-rms rot:none flow:none' --attack_rot_crit none --attack_flow_crit none --alpha 0.0005 --attack_t_crit partial_rms --attack_k 50 &
+
+nohup srun --gres=gpu:1   python run_attacks.py --attack conv --run_name  'exp4 lr:0.0005  t:partial-rms rot:mse flow:none' --attack_rot_crit mse --attack_flow_crit none --alpha 0.0005 --attack_t_crit partial_rms --attack_k 50 &
+
+nohup srun --gres=gpu:1   python run_attacks.py --attack conv --run_name  'exp4 lr:0.0005  t:partial-rms rot:explode flow:none' --attack_rot_crit explode --attack_flow_crit none --alpha 0.0005 --attack_t_crit partial_rms --attack_k 50 &
+
+
+nohup srun --gres=gpu:1   python run_attacks.py --attack conv --run_name  'exp4 lr:0.0005  t:partial-rms rot:none flow:mse' --attack_rot_crit none --attack_flow_crit mse --alpha 0.0005 --attack_t_crit partial_rms --attack_k 50 &
+
+nohup srun --gres=gpu:1   python run_attacks.py --attack conv --run_name  'exp4 lr:0.0005  t:partial-rms rot:none flow:explode' --attack_rot_crit none --attack_flow_crit explode --alpha 0.0005 --attack_t_crit partial_rms --attack_k 50 &
+
+
+nohup srun --gres=gpu:1   python run_attacks.py --attack conv --run_name  'exp4 lr:0.0005  t:partial-rms rot:mse*0.5 flow:mse*0.5' --attack_rot_crit mse --attack_flow_factor 0.5 --attack_rot_factor 0.5 --attack_flow_crit mse --alpha 0.0005 --attack_t_crit partial_rms --attack_k 50&
+
+nohup srun --gres=gpu:1   python run_attacks.py --attack conv --run_name  'exp4 lr:0.0005  t:partial-rms rot:explode*0.5 flow:explode*0.5' --attack_flow_factor 0.5 --attack_rot_factor 0.5  --attack_rot_crit explode --attack_flow_crit explode --alpha 0.0005 --attack_t_crit partial_rms --attack_k 50 &
+
+
+
+experiment 5: 
+(this used to be exp6 but the original experiment 5 but it didn't yield any nsightful results so it was scrapped)
+
+nohup srun --gres=gpu:1  python run_attacks.py --attack antipgd --run_name  'exp6 noise:0.05  t:mean-partial-rms' --noise 0.05 --attack_t_crit mean_partial_rms --attack_k 100 &
+
+nohup srun --gres=gpu:1  python run_attacks.py --attack antipgd --run_name  'exp6 noise:0.01  t:mean-partial-rms' --noise 0.01 --attack_t_crit mean_partial_rms --attack_k 100 &
+
+nohup srun --gres=gpu:1  python run_attacks.py --attack antipgd --run_name  'exp6 noise:0.005  t:mean-partial-rms' --noise 0.005 --attack_t_crit mean_partial_rms --attack_k 100 &
+
+nohup srun --gres=gpu:1 python run_attacks.py --attack antipgd --run_name  'exp6 noise:0.001  t:mean-partial-rms' --noise 0.001 --attack_t_crit mean_partial_rms --attack_k 100 &
+
+

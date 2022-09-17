@@ -46,10 +46,58 @@ def parse_args():
                         help='image height (default: 448)')
     parser.add_argument('--kitti', action='store_true', default=False,
                         help='kitti test (default: False)')
-    parser.add_argument('--test-dir', default="VO_adv_project_train_dataset_8_frames",
-                        help='test trajectory folder where the RGB images are (default: None)')
-    parser.add_argument('--processed_data_dir', default='data/VO_adv_project_train_dataset_8_frames_processed',
-                        help='folder to save processed dataset tensors (default: None)')
+
+    baseline = True
+    cross_validation = False
+    if cross_validation:
+        if baseline:
+            parser.add_argument('--test-dir', default="VO_adv_project_train_dataset_8_frames",
+                                help='test trajectory folder where the RGB images are (default: None)')
+            parser.add_argument('--processed_data_dir', default='data/VO_adv_project_train_dataset_8_frames_processed',
+                                help='folder to save processed dataset tensors (default: None)')
+        else:
+            parser.add_argument('--test-dir', default="3sec_on_ring_r50m",
+                                help='test trajectory folder where the RGB images are (default: None)')
+            parser.add_argument('--processed_data_dir', default='data/3sec_on_ring_r50m_processed',
+                                help='folder to save processed dataset tensors (default: None)')
+    else:
+        if baseline:
+            parser.add_argument('--oos-dir', default="VO_far_1_fold_8_frames",
+                                help='test trajectory folder where the RGB images are (default: None)')
+            parser.add_argument('--processed_oos_dir', default='data/VO_far_1_fold_8_frames_processed',
+                                help='folder to save processed dataset tensors (default: None)')
+
+            parser.add_argument('--val-dir', default="3sec_on_ring_r50m",
+                                help='test trajectory folder where the RGB images are (default: None)')
+            parser.add_argument('--processed_val_dir', default='data/3sec_on_ring_r50m_processed',
+                                help='folder to save processed dataset tensors (default: None)')
+
+            parser.add_argument('--test-dir', default="VO_far_4_folds_8_frames",
+                                help='test trajectory folder where the RGB images are (default: None)')
+            parser.add_argument('--processed_data_dir', default='data/VO_far_4_folds_8_frames_processed',
+                                help='folder to save processed dataset tensors (default: None)')
+        else:
+            parser.add_argument('--oos-dir', default="3sec_on_ring_r50m_1_fold",
+                                help='test trajectory folder where the RGB images are (default: None)')
+            parser.add_argument('--processed_oos_dir', default='data/3sec_on_ring_r50m_1_fold_processed',
+                                help='folder to save processed dataset tensors (default: None)')
+
+            parser.add_argument('--val-dir', default="VO_adv_project_train_dataset_8_frames",
+                                help='test trajectory folder where the RGB images are (default: None)')
+            parser.add_argument('--processed_val_dir', default='data/VO_adv_project_train_dataset_8_frames_processed',
+                                help='folder to save processed dataset tensors (default: None)')
+
+            parser.add_argument('--test-dir', default="3sec_on_ring_r50m_4_folds",
+                                help='test trajectory folder where the RGB images are (default: None)')
+            parser.add_argument('--processed_data_dir', default='data/3sec_on_ring_r50m_4_folds_processed',
+                                help='folder to save processed dataset tensors (default: None)')
+
+        parser.add_argument('--real-dir', default="DJI_Tello_2sec_r7m",
+                            help='test trajectory folder where the RGB images are (default: None)')
+        parser.add_argument('--processed_real_dir', default='data/DJI_Tello_2sec_r7m_processed',
+                            help='folder to save processed dataset tensors (default: None)')
+
+
     parser.add_argument('--preprocessed_data', action='store_false', default=True,
                         help='use preprocessed data in processed_data_dir (default: True)')
     parser.add_argument('--max_traj_len', type=int, default=8,
@@ -59,14 +107,8 @@ def parse_args():
     parser.add_argument('--max_traj_datasets', type=int, default=5,
                         help='maximal amount of trajectories datasets to load (default: 10)')
 
-    parser.add_argument('--val-dir', default="3sec_on_ring_r50m",
-                        help='test trajectory folder where the RGB images are (default: None)')
-    parser.add_argument('--processed_val_dir', default='data/validation_processed_8frames',
-                        help='folder to save processed dataset tensors (default: None)')
-    # parser.add_argument('--val-dir', default="VO_adv_project_train_dataset_8_frames",
-    #                     help='test trajectory folder where the RGB images are (default: None)')
-    # parser.add_argument('--processed_val_dir', default='data/VO_adv_project_train_dataset_8_frames_processed',
-    #                     help='folder to save processed dataset tensors (default: None)')
+
+
 
     parser.add_argument('--pose-file', default='',
                         help='test trajectory gt pose file, used for scale calculation, and visualization (default: "")')
@@ -86,6 +128,7 @@ def parse_args():
     parser.add_argument('--attack_k', default=40, type=int, metavar='ATTK', help='number of iterations for the attack')
     parser.add_argument('--alpha', type=float, default=0.05)
     parser.add_argument('--noise', type=float, default=0.01)
+    parser.add_argument('--generator', default='ResDecoder')
     parser.add_argument('--eps', type=float, default=1)
     # parser.add_argument('--attack_targeted', action='store_true', default=False, help='use targeted attacks')
     parser.add_argument('--attack_eval_mean_partial_rms', action='store_true', default=False, help='use mean partial rms criterion for attack evaluation criterion (default: False)')
@@ -155,17 +198,9 @@ def compute_data_args(args):
     args.centerx = 320.0
     args.centery = 240.0
     args.dataset_class = MultiTrajFolderDatasetCustom
+
     args.testDataset = \
         args.dataset_class(args.test_dir, processed_data_folder=args.processed_data_dir,
-                                     preprocessed_data=args.preprocessed_data,
-                                     transform=args.transform, data_size=(args.image_height, args.image_width),
-                                     focalx=args.focalx, focaly=args.focaly,
-                                     centerx=args.centerx, centery=args.centery, max_traj_len=args.max_traj_len,
-                                     max_dataset_traj_num=args.max_traj_num,
-                                     max_traj_datasets=args.max_traj_datasets)
-
-    args.valDataset = \
-        args.dataset_class('./data/' + args.val_dir, processed_data_folder=args.processed_val_dir,
                            preprocessed_data=args.preprocessed_data,
                            transform=args.transform, data_size=(args.image_height, args.image_width),
                            focalx=args.focalx, focaly=args.focaly,
@@ -174,10 +209,50 @@ def compute_data_args(args):
                            max_traj_datasets=args.max_traj_datasets)
 
     args.testDataloader = DataLoader(args.testDataset, batch_size=args.batch_size,
-                                        shuffle=False, num_workers=args.worker_num)
+                                     shuffle=False, num_workers=args.worker_num)
 
-    args.valDataloader = DataLoader(args.valDataset, batch_size=args.batch_size,
-                                        shuffle=False, num_workers=args.worker_num)
+    try:
+        args.oosDataset = \
+            args.dataset_class('./data/' + args.oos_dir, processed_data_folder=args.processed_oos_dir,
+                               preprocessed_data=args.preprocessed_data,
+                               transform=args.transform, data_size=(args.image_height, args.image_width),
+                               focalx=args.focalx, focaly=args.focaly,
+                               centerx=args.centerx, centery=args.centery, max_traj_len=args.max_traj_len,
+                               max_dataset_traj_num=args.max_traj_num,
+                               max_traj_datasets=args.max_traj_datasets)
+
+        args.valDataset = \
+            args.dataset_class('./data/' + args.val_dir, processed_data_folder=args.processed_val_dir,
+                               preprocessed_data=args.preprocessed_data,
+                               transform=args.transform, data_size=(args.image_height, args.image_width),
+                               focalx=args.focalx, focaly=args.focaly,
+                               centerx=args.centerx, centery=args.centery, max_traj_len=args.max_traj_len,
+                               max_dataset_traj_num=args.max_traj_num,
+                               max_traj_datasets=args.max_traj_datasets)
+
+        args.realDataset = \
+            MultiTrajFolderDatasetRealData('./data/' + args.real_dir, processed_data_folder=args.processed_real_dir,
+                               preprocessed_data=args.preprocessed_data,
+                               transform=args.transform, data_size=(args.image_height, args.image_width),
+                               focalx=args.focalx, focaly=args.focaly,
+                               centerx=args.centerx, centery=args.centery, max_traj_len=args.max_traj_len,
+                               max_dataset_traj_num=args.max_traj_num,
+                               max_traj_datasets=args.max_traj_datasets)
+
+        args.oosDataloader = DataLoader(args.oosDataset, batch_size=args.batch_size,
+                                          shuffle=False, num_workers=args.worker_num)
+
+
+        args.valDataloader = DataLoader(args.valDataset, batch_size=args.batch_size,
+                                            shuffle=False, num_workers=args.worker_num)
+
+        args.realDataloader = DataLoader(args.realDataset, batch_size=args.batch_size,
+                                            shuffle=False, num_workers=args.worker_num)
+    except:
+        print("No OOS or VAL data")
+        args.oosDataloader = None
+        args.valDataloader = None
+        args.realDataloader = None
 
     args.traj_len = args.testDataset.traj_len
     args.traj_datasets = args.testDataset.datasets_num
@@ -255,7 +330,7 @@ def compute_attack_args(args):
                                           data_shape=(args.traj_len - 1, args.image_height, args.image_width),
                                           pert_path=args.load_attack,
                                           pert_transform=const_pert_transform)
-        elif args.attack_name == 'noisepgd':
+        elif args.attack_name == 'noisepgd' or args.attack_name == 'antipgd':
             args.attack_obj = args.attack(args.model, args.att_criterion, args.att_eval_criterion,
                                           norm=args.attack_norm,
                                           data_shape=(args.traj_len - 1, args.image_height, args.image_width),
@@ -264,8 +339,19 @@ def compute_attack_args(args):
                                           sample_window_stride=args.window_stride,
                                           init_pert_path=args.load_attack,
                                           init_pert_transform=load_pert_transform,
+                                          run_name=args.run_name,
                                           noise=args.noise)
-
+        elif args.attack_name == 'conv':
+            args.attack_obj = args.attack(args.model, args.att_criterion, args.att_eval_criterion,
+                                          norm=args.attack_norm,
+                                          data_shape=(args.traj_len - 1, args.image_height, args.image_width),
+                                          n_iter=args.attack_k, alpha=args.alpha, rand_init=True,
+                                          sample_window_size=args.window_size,
+                                          sample_window_stride=args.window_stride,
+                                          init_pert_path=args.load_attack,
+                                          init_pert_transform=load_pert_transform,
+                                          run_name=args.run_name,
+                                          generator=args.generator)
         else:
             args.attack_obj = args.attack(args.model, args.att_criterion, args.att_eval_criterion,
                                           norm=args.attack_norm,

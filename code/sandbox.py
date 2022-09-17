@@ -20,6 +20,16 @@ from Datasets.utils import visflow
 plt.switch_backend(sandbox_backend)
 
 
+class LinearGenerator(nn.Module):
+    def __init__(self, output_shape=(3, 448, 640)):
+        super(LinearGenerator, self).__init__()
+        self.kernel = torch.ones(1,1,1,1)
+        C, H, W = output_shape
+        self.cnn = nn.ConvTranspose2d(in_channels=1, out_channels=C, kernel_size=(H,W), stride=1, padding=0, bias=False)
+        self.cnn.weight.data.uniform_(0., 1.0)
+    def sample(self, device):
+        return torch.clamp(self.cnn.to(device)(self.kernel.to(device)), 0, 1)
+
 
 
 class ResBlock(nn.Module):
@@ -118,22 +128,22 @@ class DiscreteVAE(nn.Module):
     #     deepspeed = distributed_utils.backend.backend_module
     #     deepspeed.zero.register_external_parameter(self, self.codebook.weight)
 
-    def norm(self, images):
-        if not exists(self.normalization):
-            return images
-
-        means, stds = map(lambda t: torch.as_tensor(t).to(images), self.normalization)
-        means, stds = map(lambda t: rearrange(t, 'c -> () c () ()'), (means, stds))
-        images = images.clone()
-        images.sub_(means).div_(stds)
-        return images
-
-    @torch.no_grad()
-    @eval_decorator
-    def get_codebook_indices(self, images):
-        logits = self(images, return_logits=True)
-        codebook_indices = logits.argmax(dim=1).flatten(1)
-        return codebook_indices
+    # def norm(self, images):
+    #     if not exists(self.normalization):
+    #         return images
+    #
+    #     means, stds = map(lambda t: torch.as_tensor(t).to(images), self.normalization)
+    #     means, stds = map(lambda t: rearrange(t, 'c -> () c () ()'), (means, stds))
+    #     images = images.clone()
+    #     images.sub_(means).div_(stds)
+    #     return images
+    #
+    # @torch.no_grad()
+    # @eval_decorator
+    # def get_codebook_indices(self, images):
+    #     logits = self(images, return_logits=True)
+    #     codebook_indices = logits.argmax(dim=1).flatten(1)
+    #     return codebook_indices
 
     def decode(
             self,
@@ -223,6 +233,24 @@ def decoder_from_vae_ceckpoint(checkpoint_path='discrete_vae.pth'):
     return dec
 
 
+class ResDecoder(torch.nn.Module):
+
+    def __init__(self, kernel_grad=True, latent_dim=100, num_resnet_blocks=1, hidden_dim=64):
+        super(ResDecoder, self,).__init__()
+        vae = DiscreteVAE(num_tokens=latent_dim, codebook_dim=latent_dim, hidden_dim=hidden_dim, num_resnet_blocks=num_resnet_blocks)
+        self.cnn = vae.decoder
+        # for param in self.cnn.parameters():
+        #     param.requires_grad = False
+        #     param.uniform_(-0.1, 0.11)
+        #     param.requires_grad = kernel_grad
+
+        self.kernel = torch.nn.Parameter(500 * torch.randn(1, latent_dim, 56, 80), requires_grad=kernel_grad)
+        print(self.cnn(self.kernel).shape)
+
+    def sample(self, device):
+        img =self.cnn.to(device)(self.kernel.to(device))
+        print(f'max = {img.max()}, min = {img.min()}')
+        return torch.clamp(self.cnn.to(device)(self.kernel.to(device)), 0, 1)
 
 
 
@@ -1277,7 +1305,18 @@ def parameters_experiment():
     torchvision.utils.save_image(output, 'results/sandbox/initial_pert.png')
 
 
+
 def main():
+
+    gen = ResDecoder()
+    print(gen)
+    print(get_n_params(gen))
+    print(3*448*640)
+    img = gen.sample('cpu')
+
+    imshow(img[0])
+    print(img.shape)
+    return
     optimize_flow_experiment()
     return
     # factors_experiment()
@@ -1388,6 +1427,7 @@ def main():
     seq = LinConvGen()
     print(f'seq has {get_n_params(seq)} params')
     output = seq.sample()
+
     print(output.shape)
     imshow(output)
     print(output.max())
